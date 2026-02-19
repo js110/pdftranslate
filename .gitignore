@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.*
+*.env
+*.env.*
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+node_modules/
+dist/
+runtime-data/
+.vscode/
+_research/

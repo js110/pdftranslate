@@ -1,0 +1,90 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_ROOT: /tmp/pdftranslate/sessions
+      SESSION_TTL_MINUTES: 120
+      MAX_UPLOAD_MB: 30
+      RENDER_DPI: 160
+      HIGH_PRIORITY_QUEUE: page_high
+      NORMAL_PRIORITY_QUEUE: page_normal
+      MAX_RETRIES_PER_PROVIDER: 1
+      BATCH_SEGMENT_SIZE: 36
+      BATCH_SEGMENT_CHAR_LIMIT: 8000
+      TRANSLATION_TEMPERATURE: 0.2
+      ENABLE_STRICT_LOW_QUALITY_RETRY: "true"
+      CLEAR_TRANSLATION_MEMORY_ON_RETRY: "true"
+      ENABLE_LAYOUT_DETECTION_GUARD: "true"
+      LAYOUT_DETECTION_LANG: en
+      ENABLE_GROBID_REFERENCE_GUARD: "false"
+      GROBID_BASE_URL: ""
+      GROBID_TIMEOUT_SEC: 30
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./runtime-data:/tmp/pdftranslate/sessions
+    depends_on:
+      - redis
+
+  worker:
+    build:
+      context: ./backend
+    command:
+      [
+        "celery",
+        "-A",
+        "celery_worker.celery_app",
+        "worker",
+        "-Q",
+        "page_high,page_normal",
+        "--concurrency=4",
+        "--loglevel=info"
+      ]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_ROOT: /tmp/pdftranslate/sessions
+      SESSION_TTL_MINUTES: 120
+      MAX_UPLOAD_MB: 30
+      RENDER_DPI: 160
+      HIGH_PRIORITY_QUEUE: page_high
+      NORMAL_PRIORITY_QUEUE: page_normal
+      MAX_RETRIES_PER_PROVIDER: 1
+      BATCH_SEGMENT_SIZE: 36
+      BATCH_SEGMENT_CHAR_LIMIT: 8000
+      TRANSLATION_TEMPERATURE: 0.2
+      ENABLE_STRICT_LOW_QUALITY_RETRY: "true"
+      CLEAR_TRANSLATION_MEMORY_ON_RETRY: "true"
+      ENABLE_LAYOUT_DETECTION_GUARD: "true"
+      LAYOUT_DETECTION_LANG: en
+      ENABLE_GROBID_REFERENCE_GUARD: "false"
+      GROBID_BASE_URL: ""
+      GROBID_TIMEOUT_SEC: 30
+    volumes:
+      - ./runtime-data:/tmp/pdftranslate/sessions
+    depends_on:
+      - redis
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE: http://localhost:8000/v1
+        VITE_DEFAULT_PRIMARY_ID: deepseek-main
+        VITE_DEFAULT_PRIMARY_MODEL: deepseek-chat
+        VITE_DEFAULT_PRIMARY_BASE_URL: https://api.deepseek.com/v1
+        VITE_DEFAULT_PRIMARY_API_KEY: ${VITE_DEFAULT_PRIMARY_API_KEY:-}
+        VITE_DEFAULT_BACKUP_ID: qwen-backup
+        VITE_DEFAULT_BACKUP_MODEL: qwen-plus
+        VITE_DEFAULT_BACKUP_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+        VITE_DEFAULT_BACKUP_API_KEY: ${VITE_DEFAULT_BACKUP_API_KEY:-}
+    ports:
+      - "5173:80"
+    depends_on:
+      - api

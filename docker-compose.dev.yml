@@ -1,0 +1,55 @@
+
+services:
+  api:
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+        "--reload-dir",
+        "/app/app"
+      ]
+    environment:
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./backend:/app
+      - ./runtime-data:/tmp/pdftranslate/sessions
+
+  worker:
+    command: ["python", "/app/dev/reload_celery_worker.py"]
+    environment:
+      WATCH_PATHS: /app/app,/app/celery_worker.py,/app/dev/reload_celery_worker.py
+      WATCH_EXTENSIONS: .py
+      RELOAD_POLL_INTERVAL: "1.0"
+      CELERY_CMD: celery -A celery_worker.celery_app worker -Q page_high,page_normal --concurrency=4 --loglevel=info
+    volumes:
+      - ./backend:/app
+      - ./runtime-data:/tmp/pdftranslate/sessions
+
+  web:
+    profiles:
+      - prod
+
+  web-dev:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
+    ports:
+      - "5173:5173"
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "300"
+      VITE_API_BASE: http://localhost:8000/v1
+    depends_on:
+      - api
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+
+volumes:
+  frontend_node_modules:
