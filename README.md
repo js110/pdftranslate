@@ -66,6 +66,54 @@ docker compose up --build
 
 - 页面里仍可手动修改模型参数与 Key
 - 若你只用一个模型，备用 Key 可留空
+- 不要把 API Key 提交到 Git 仓库或发到公开聊天记录中
+
+### 三家模型 API Key 获取方式（官方）
+
+#### 1. DeepSeek
+
+- 平台首页：`https://platform.deepseek.com/`
+- Key 管理页：`https://platform.deepseek.com/api_keys`
+- 官方文档：`https://api-docs.deepseek.com/zh-cn/`
+
+操作步骤：
+
+1. 注册并登录 DeepSeek 平台
+2. 进入 `API Keys` 页面，新建一个 Key 并复制保存
+3. 在本项目页面中填写：
+   - `Base URL`：`https://api.deepseek.com/v1`
+   - `模型名称`：如 `deepseek-chat`
+   - `API Key`：刚创建的 Key
+
+#### 2. 腾讯混元（Tencent Hunyuan）
+
+- API Key 管理文档：`https://cloud.tencent.com/document/product/1729/111008`
+- OpenAI 兼容接口文档：`https://cloud.tencent.com/document/product/1729/111007`
+- 控制台入口：`https://console.cloud.tencent.com/hunyuan/start`
+
+操作步骤：
+
+1. 登录腾讯云账号（如页面提示，先完成实名认证）
+2. 开通混元服务并进入控制台
+3. 按官方文档创建 API Key
+4. 在本项目页面中填写：
+   - `Base URL`：`https://api.hunyuan.cloud.tencent.com/v1`
+   - `模型名称`：如 `hunyuan-turbos-latest`
+   - `API Key`：控制台创建的 Key
+
+#### 3. 阿里云通义千问（DashScope / 百炼）
+
+- API Key 获取文档：`https://help.aliyun.com/zh/model-studio/get-api-key`
+- Model Studio 控制台：`https://bailian.console.aliyun.com/`
+
+操作步骤：
+
+1. 登录阿里云并开通 Model Studio（百炼）
+2. 按官方文档创建 API Key
+3. 在本项目页面中填写：
+   - `Base URL`（中国站）：`https://dashscope.aliyuncs.com/compatible-mode/v1`
+   - `模型名称`：如 `qwen-plus`
+   - `API Key`：刚创建的 Key
 
 ## 开发模式热更新
 
