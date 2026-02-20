@@ -27,6 +27,8 @@ const DEFAULT_BACKUP_MODEL = (import.meta.env.VITE_DEFAULT_BACKUP_MODEL as strin
 const DEFAULT_BACKUP_BASE_URL =
   (import.meta.env.VITE_DEFAULT_BACKUP_BASE_URL as string | undefined) ?? 'https://api.deepseek.com/v1'
 const DEFAULT_BACKUP_API_KEY = (import.meta.env.VITE_DEFAULT_BACKUP_API_KEY as string | undefined) ?? ''
+const SHOW_RETRANSLATE_BUTTON =
+  import.meta.env.DEV || ((import.meta.env.VITE_ENABLE_RETRANSLATE_BUTTON as string | undefined) ?? '') === 'true'
 
 type ProviderPresetKey = 'deepseek' | 'tencent' | 'aliyun' | 'custom'
 
@@ -644,7 +646,7 @@ function App() {
                         src={translatedPageUrl(session.session_id, page.page_no, cacheVersion[page.page_no] ?? 0)}
                         alt={`translated-${page.page_no}`}
                       />
-                      <button onClick={() => onRetryPage(page.page_no)}>{'重译该页'}</button>
+                      {SHOW_RETRANSLATE_BUTTON && <button onClick={() => onRetryPage(page.page_no)}>{'重译该页'}</button>}
                     </>
                   )}
                   {page.status === 'pending' && <div className="placeholder">{'\u7b49\u5f85\u8fdb\u5165\u7ffb\u8bd1\u961f\u5217...'}</div>}
