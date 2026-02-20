@@ -49,6 +49,15 @@ TABLE_HEADER_HINT_RE = re.compile(
 TABLE_ROW_NUMERIC_RE = re.compile(r"^(?:\S+\s+)?(?:\d+(?:\.\d+)?\s+){2,}\d+(?:\.\d+)?$")
 TABLE_SYMBOLIC_ROW_RE = re.compile(r"^(?:[A-Za-z][\w\-/*']*\s+){1,6}(?:[×x✓\-]|[0-9]+(?:\.[0-9]+)?)(?:\s+[×x✓\-]|[0-9]+(?:\.[0-9]+)?)+$")
 TABLE_SYMBOL_TOKEN_RE = re.compile(r"(?:^|[\s|,;:/()\[\]{}])(?:x|X|×|✓)(?=$|[\s|,;:/()\[\]{}])")
+TABLE_NARRATIVE_VERB_RE = re.compile(
+    r"\b("
+    r"list|lists|show|shows|present|presents|illustrate|illustrates|compare|compares|"
+    r"summarize|summarizes|report|reports|give|gives|describe|describes|"
+    r"outline|outlines|detail|details|discuss|discusses|analyze|analyzes|"
+    r"evaluate|evaluates|investigate|investigates|examine|examines"
+    r")\b",
+    re.IGNORECASE,
+)
 REFERENCE_HEADING_RE = re.compile(
     r"^\s*(?:(?:section\s+)?(?:\d+(?:\.\d+)*|[ivxlcdm]+)\s*[\).:\-]?\s*)?"
     r"(references?|bibliography|works\s+cited|literature|参考文献)\s*[:.]?\s*$",
@@ -2961,6 +2970,12 @@ def _extract_caption_table_regions(
         if not _is_table_caption_text(caption_text):
             continue
 
+        # Guardrail: a very tall "caption" block is almost always narrative prose
+        # (e.g., a full paragraph beginning with "Table I ..."), not a real table caption.
+        caption_block_height = max(0.0, cy1 - cy0)
+        if caption_block_height > max(96.0, 180.0 * zoom / 2.22):
+            continue
+
         max_table_height = max(180.0, 460.0 * zoom / 2.22)
         min_x, max_x = cx0, cx1
         max_y = cy1
@@ -3014,16 +3029,26 @@ def _is_table_caption_text(text: str) -> bool:
     if not TABLE_CAPTION_RE.match(first_line):
         return False
 
-    # Narrative mentions like "Table V lists ..." are part of prose and should be translated.
-    lower = first_line.lower()
-    words = ENGLISH_WORD_RE.findall(first_line)
-    verb_like = re.search(
-        r"\b(lists?|shows?|presents?|illustrates?|compares?|summarizes?|reports?|gives?|describes?)\b",
-        lower,
-    )
-    if verb_like and len(words) >= 6:
+    flat = re.sub(r"\s+", " ", " ".join(lines)).strip()
+    lower = flat.lower()
+    words = ENGLISH_WORD_RE.findall(flat)
+    sentence_punct = sum(flat.count(mark) for mark in (".", "?", "!", ";", ":"))
+
+    # Narrative mentions like "Table V outlines/lists ..." should stay translatable.
+    if len(words) >= 6 and TABLE_NARRATIVE_VERB_RE.search(lower):
         return False
-    if len(words) >= 10 and (" that " in lower or " since " in lower or "," in first_line):
+    # Long sentence-like blocks are prose, not standalone captions.
+    if len(words) >= 36:
+        return False
+    if len(lines) >= 3 and len(words) >= 18:
+        return False
+    if sentence_punct >= 2 and len(words) >= 14:
+        return False
+    if len(words) >= 12 and sentence_punct >= 1 and (
+        "," in flat or TABLE_NARRATIVE_CONTINUATION_RE.search(lower)
+    ):
+        return False
+    if len(words) >= 10 and (" that " in lower or " since " in lower):
         return False
     return True
 

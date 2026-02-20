@@ -17,6 +17,15 @@ CODE_RE = re.compile(r"[{};<>]|\b(def|class|return|import)\b")
 FORMULA_RE = re.compile(r"\b[A-Za-z]\s*=\s*[A-Za-z0-9]|\$[^$]+\$|\\\([^)]*\\\)")
 CITATION_RE = re.compile(r"^\s*(\[[0-9,\- ]+\]|\([A-Za-z].*\d{4}.*\))\s*$")
 CAPTION_RE = re.compile(r"^\s*(fig(?:ure)?|table)\s*[\.\-: ]*([ivxlcdm]+|\d+)\b", re.IGNORECASE)
+TABLE_NARRATIVE_VERB_RE = re.compile(
+    r"\b("
+    r"list|lists|show|shows|present|presents|illustrate|illustrates|compare|compares|"
+    r"summarize|summarizes|report|reports|give|gives|describe|describes|"
+    r"outline|outlines|detail|details|discuss|discusses|analyze|analyzes|"
+    r"evaluate|evaluates|investigate|investigates|examine|examines"
+    r")\b",
+    re.IGNORECASE,
+)
 LATEX_CMD_RE = re.compile(r"\\(frac|sum|int|alpha|beta|gamma|theta|lambda|mu|sigma|pi|cdot|times|leq|geq)")
 UNICODE_MATH_CHARS = "\u2264\u2265\u2248\u2260\u2211\u222b\u221a\u00b1\u00d7\u00f7\u2217\u2212\u2032\u2033"
 EN_WORD_RE = re.compile(r"\b[A-Za-z]{3,}\b")
@@ -228,8 +237,17 @@ def _looks_like_standalone_caption(text: str) -> bool:
 
     words = EN_WORD_RE.findall(stripped)
     lower = stripped.lower()
+    sentence_punct = sum(stripped.count(mark) for mark in (".", "?", "!", ";", ":"))
     # Prose references to figures/tables (e.g., "Table V lists ...") should be translated.
-    if re.search(r"\b(lists?|shows?|presents?|illustrates?|compares?|summarizes?|reports?|gives?|describes?)\b", lower):
+    if len(words) >= 6 and TABLE_NARRATIVE_VERB_RE.search(lower):
+        return False
+    if len(words) >= 36:
+        return False
+    if sentence_punct >= 2 and len(words) >= 14:
+        return False
+    if len(words) >= 12 and sentence_punct >= 1 and (
+        "," in stripped or " that " in lower or " which " in lower or " including " in lower
+    ):
         return False
     if len(words) >= 8 and (" that " in lower or " since " in lower or "," in stripped):
         return False
