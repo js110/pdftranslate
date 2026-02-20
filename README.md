@@ -2,6 +2,16 @@
 
 一个本地 Docker 部署的 Web 应用，用于将英文科研 PDF 翻译为中文，并提供左原文/右译文的同步阅读体验。
 
+## 效果演示视频
+
+- 标题：`计算机专业科研论文翻译器`
+- 地址：`https://www.bilibili.com/video/BV16aZeBrE5X/`
+- 时长：`6分47秒`
+
+[![PDF Translate 在线效果演示](https://i0.hdslb.com/bfs/archive/e6a26b38a1b27c808a6a3e4218439893a5acde13.jpg)](https://www.bilibili.com/video/BV16aZeBrE5X/)
+
+点击封面可直接打开 B 站视频介绍页。
+
 ## 功能特性
 
 - 单 PDF 会话上传
