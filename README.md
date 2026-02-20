@@ -34,6 +34,39 @@ docker compose up --build
 - Web UI：`http://localhost:5173`
 - API：`http://localhost:8000`
 
+## API Key 配置（必做）
+
+### 方式一：在网页中填写（推荐）
+
+1. 启动服务后打开 `http://localhost:5173`
+2. 上传 PDF
+3. 在页面顶部填写主模型配置：
+   - `主模型 Base URL`（例如 OpenAI 兼容地址）
+   - `主模型名称`
+   - `主模型 API Key`
+4. 可选开启备用模型，并填写备用模型的 `Base URL / 模型名称 / API Key`
+5. 点击“开始翻译”
+
+### 方式二：启动前预置默认 Key（可选）
+
+在项目根目录新建 `.env`，填入：
+
+```env
+VITE_DEFAULT_PRIMARY_API_KEY=你的主模型Key
+VITE_DEFAULT_BACKUP_API_KEY=你的备用模型Key
+```
+
+然后启动：
+
+```bash
+docker compose up --build
+```
+
+说明：
+
+- 页面里仍可手动修改模型参数与 Key
+- 若你只用一个模型，备用 Key 可留空
+
 ## 开发模式热更新
 
 使用 dev 覆盖配置启动（API、Worker、前端开发服务器热更新）：
