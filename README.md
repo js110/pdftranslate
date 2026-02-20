@@ -34,24 +34,6 @@ docker compose up --build
 - Web UI：`http://localhost:5173`
 - API：`http://localhost:8000`
 
-## 给他人使用（无需 Python/Node 开发环境）
-
-### 方案 A（推荐）：你集中部署，别人只访问网页
-
-- 在一台机器（服务器或局域网主机）上部署本项目
-- 让他人访问 `http://<你的主机IP>:5173`
-- 对方只需要浏览器
-
-### 方案 B：对方本地运行 Docker Desktop
-
-- 安装 Docker Desktop
-- 解压/复制本项目目录
-- 双击 `start.bat`
-- 打开 `http://localhost:5173`
-
-停止服务：`stop.bat`  
-重启服务：`restart.bat`
-
 ## 开发模式热更新
 
 使用 dev 覆盖配置启动（API、Worker、前端开发服务器热更新）：
