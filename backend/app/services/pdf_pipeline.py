@@ -63,7 +63,7 @@ REFERENCE_HEADING_RE = re.compile(
     r"(references?|bibliography|works\s+cited|literature|参考文献)\s*[:.]?\s*$",
     re.IGNORECASE,
 )
-REFERENCE_ENTRY_START_RE = re.compile(r"^\s*(\[\d{1,3}\]|\d{1,3}[.)])\s+")
+REFERENCE_ENTRY_START_RE = re.compile(r"^\s*(\[\d{1,3}\]|\d{1,2}[.)])\s+")
 REFERENCE_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
 REFERENCE_VENUE_HINT_RE = re.compile(
     r"\b(ieee|acm|springer|elsevier|wiley|journal|transactions|proc\.?|conference|symposium|doi|arxiv|vol\.?\s*\d+|no\.?\s*\d+|pp\.?\s*\d+)\b",
@@ -1959,7 +1959,7 @@ def _render_text_job(
 
 
 def _prepare_text_for_render(*, source_text: str, translated_text: str) -> str:
-    text = translated_text.strip()
+    text = _normalize_common_unicode_text(translated_text.strip())
     if not text:
         return text
 
@@ -2209,6 +2209,10 @@ def _normalize_common_unicode_text(text: str) -> str:
         .replace("\u2033", "''")
         .replace("\u2034", "'''")
         .replace("\u2044", "/")
+        .replace("\u2308", "[")
+        .replace("\u2309", "]")
+        .replace("\u230a", "[")
+        .replace("\u230b", "]")
     )
     # Repair common mojibake artifacts seen in model outputs.
     out = re.sub(r"Â(?=[·±×÷])", "", out)
@@ -2463,10 +2467,12 @@ def _is_reference_entry_text(text: str) -> bool:
     if proposal_like and not has_year and start_count <= 2:
         return False
 
-    # Multiple reference entries in one block: check if many lines use [N] format
-    # and have publication metadata (year, venue, or author hints)
-    if start_count >= 2 and (has_year or has_venue_hint or has_author_hint):
-        return True
+    # Multiple reference entries in one block:
+    # keep this conservative to avoid swallowing long narrative survey paragraphs
+    # that contain citation-leading lines and numeric values.
+    if start_count >= 2 and word_count <= 120 and len(lines) <= 12:
+        if has_venue_hint or (has_year and has_author_hint):
+            return True
     if REFERENCE_ENTRY_START_RE.match(first) and (has_year or has_venue_hint or has_author_hint):
         return True
     if has_year and (" doi" in lower or " arxiv" in lower) and (start_count >= 1 or REFERENCE_ENTRY_START_RE.match(first)):

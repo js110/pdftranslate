@@ -156,7 +156,14 @@ def get_translated_page(session_id: str, page_no: int):
     file_path = store.paths(session_id).translated_dir / f"{page_no}.png"
     if not file_path.exists():
         return JSONResponse(status_code=202, content={"status": "pending", "page_no": page_no})
-    return FileResponse(file_path)
+    return FileResponse(
+        file_path,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @router.post(
