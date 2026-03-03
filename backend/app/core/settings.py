@@ -35,6 +35,16 @@ class Settings(BaseSettings):
     task_soft_time_limit_sec: int = 180
     task_time_limit_sec: int = 240
     enable_image_ocr: bool = False
+    enable_remote_image_ocr: bool = False
+    remote_ocr_job_url: str = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs"
+    remote_ocr_token: str | None = None
+    remote_ocr_model: str = "PaddleOCR-VL-1.5"
+    remote_ocr_timeout_sec: int = 30
+    remote_ocr_poll_interval_sec: int = 5
+    remote_ocr_max_wait_sec: int = 180
+    remote_ocr_use_doc_orientation_classify: bool = False
+    remote_ocr_use_doc_unwarping: bool = False
+    remote_ocr_use_chart_recognition: bool = False
     enable_layout_detection_guard: bool = True
     layout_detection_lang: str = "en"
     enable_grobid_reference_guard: bool = False

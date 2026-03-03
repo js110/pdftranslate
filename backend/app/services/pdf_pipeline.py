@@ -1,8 +1,11 @@
 ﻿from __future__ import annotations
 
 import hashlib
+import io
+import json
 import logging
 import re
+import time
 import unicodedata
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator
@@ -2055,11 +2058,8 @@ def _process_image_block(
     glossary: list[str] | None,
     max_retries: int,
 ) -> None:
-    if not get_settings().enable_image_ocr:
-        return
-
-    ocr = get_ocr()
-    if not ocr:
+    settings = get_settings()
+    if not settings.enable_image_ocr and not settings.enable_remote_image_ocr:
         return
 
     bbox = block.get("bbox", [0, 0, 0, 0])
@@ -2068,21 +2068,35 @@ def _process_image_block(
         return
 
     crop = image.crop((x0, y0, x1, y1))
-    crop_np = np.array(crop)
+    image_index = int(block.get("number", -1))
+    lines: list[dict[str, Any]] = []
 
-    try:
-        ocr_result = ocr.predict(crop_np)
-    except Exception as exc:  # noqa: BLE001
-        result.image_ocr_failures.append(
-            {
-                "page_no": page_no,
-                "image_index": int(block.get("number", -1)),
-                "reason": f"ocr_failed: {exc}",
-            }
+    if settings.enable_image_ocr:
+        ocr = get_ocr()
+        if ocr:
+            crop_np = np.array(crop)
+            try:
+                ocr_result = ocr.predict(crop_np)
+                lines = _normalize_ocr_result(ocr_result)
+            except Exception as exc:  # noqa: BLE001
+                result.image_ocr_failures.append(
+                    {
+                        "page_no": page_no,
+                        "image_index": image_index,
+                        "reason": f"ocr_failed: {exc}",
+                    }
+                )
+
+    if not lines and settings.enable_remote_image_ocr:
+        remote_text = _extract_remote_ocr_markdown_text(
+            crop=crop,
+            page_no=page_no,
+            image_index=image_index,
+            result=result,
         )
-        return
+        if remote_text:
+            lines = [{"text": remote_text, "rect": [0, 0, crop.width, crop.height]}]
 
-    lines = _normalize_ocr_result(ocr_result)
     if not lines:
         return
 
@@ -2145,6 +2159,123 @@ def _process_image_block(
             ty += txt_line_height
 
     image.paste(overlay, (x0, y0))
+
+
+def _extract_remote_ocr_markdown_text(
+    *,
+    crop: Image.Image,
+    page_no: int,
+    image_index: int,
+    result: PageProcessResult,
+) -> str | None:
+    settings = get_settings()
+    token = (settings.remote_ocr_token or "").strip()
+    if not token:
+        result.image_ocr_failures.append(
+            {
+                "page_no": page_no,
+                "image_index": image_index,
+                "reason": "remote_ocr_missing_token",
+            }
+        )
+        return None
+
+    optional_payload = {
+        "useDocOrientationClassify": bool(settings.remote_ocr_use_doc_orientation_classify),
+        "useDocUnwarping": bool(settings.remote_ocr_use_doc_unwarping),
+        "useChartRecognition": bool(settings.remote_ocr_use_chart_recognition),
+    }
+
+    try:
+        with io.BytesIO() as buff:
+            crop.save(buff, format="PNG")
+            image_bytes = buff.getvalue()
+
+        headers = {"Authorization": f"Bearer {token}"}
+        timeout = max(5.0, float(settings.remote_ocr_timeout_sec))
+        job_url = settings.remote_ocr_job_url
+        with httpx.Client(timeout=timeout) as client:
+            submit = client.post(
+                job_url,
+                headers=headers,
+                data={
+                    "model": settings.remote_ocr_model,
+                    "optionalPayload": json.dumps(optional_payload, ensure_ascii=False),
+                },
+                files={"file": ("crop.png", image_bytes, "image/png")},
+            )
+            payload = _parse_remote_ocr_response(submit, context="submit_remote_ocr")
+            job_id = str((payload.get("data") or {}).get("jobId") or "").strip()
+            if not job_id:
+                raise RuntimeError(f"remote OCR returned no jobId: {payload}")
+
+            poll_interval = max(1, int(settings.remote_ocr_poll_interval_sec))
+            deadline = time.monotonic() + max(10, int(settings.remote_ocr_max_wait_sec))
+            jsonl_url = ""
+            while True:
+                if time.monotonic() > deadline:
+                    raise TimeoutError("remote OCR polling timed out")
+                status_resp = client.get(f"{job_url.rstrip('/')}/{job_id}", headers=headers)
+                status_payload = _parse_remote_ocr_response(status_resp, context="poll_remote_ocr")
+                data = status_payload.get("data") or {}
+                state = str(data.get("state") or "").strip().lower()
+                if state == "done":
+                    jsonl_url = str(((data.get("resultUrl") or {}).get("jsonUrl")) or "").strip()
+                    break
+                if state == "failed":
+                    raise RuntimeError(str(data.get("errorMsg") or "remote OCR job failed"))
+                time.sleep(poll_interval)
+
+            if not jsonl_url:
+                raise RuntimeError("remote OCR completed without result URL")
+            jsonl_resp = client.get(jsonl_url)
+            jsonl_resp.raise_for_status()
+            extracted = _extract_markdown_text_from_jsonl(jsonl_resp.text)
+            return extracted or None
+
+    except Exception as exc:  # noqa: BLE001
+        result.image_ocr_failures.append(
+            {
+                "page_no": page_no,
+                "image_index": image_index,
+                "reason": f"remote_ocr_failed: {exc}",
+            }
+        )
+        return None
+
+
+def _parse_remote_ocr_response(resp: httpx.Response, *, context: str) -> dict[str, Any]:
+    if resp.status_code != 200:
+        preview = (resp.text or "")[:600]
+        raise RuntimeError(f"{context} http_{resp.status_code}: {preview}")
+    try:
+        payload = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        preview = (resp.text or "")[:600]
+        raise RuntimeError(f"{context} non_json_response: {preview}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{context} response is not a JSON object")
+    return payload
+
+
+def _extract_markdown_text_from_jsonl(raw_jsonl: str) -> str:
+    parts: list[str] = []
+    for line in raw_jsonl.splitlines():
+        item = line.strip()
+        if not item:
+            continue
+        try:
+            payload = json.loads(item)
+        except Exception:  # noqa: BLE001
+            continue
+        result = payload.get("result") or {}
+        layouts = result.get("layoutParsingResults") or []
+        for layout in layouts:
+            markdown = (layout.get("markdown") or {}).get("text") or ""
+            text = str(markdown).strip()
+            if text:
+                parts.append(text)
+    return "\n\n".join(parts).strip()
 
 
 def _compute_text_start_y(*, inner_top: float, inner_height: float, total_height: float, line_count: int) -> float:

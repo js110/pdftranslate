@@ -73,6 +73,29 @@ export async function saveResultPdf(sessionId: string): Promise<SaveResultPdfRes
   })
 }
 
+
+export async function exportResultPdf(sessionId: string): Promise<void> {
+  const resp = await fetch(`${API_BASE}/sessions/${sessionId}/export-result.pdf`)
+  if (!resp.ok) {
+    let message = `HTTP ${resp.status}`
+    try {
+      const body = await resp.json()
+      message = toErrorMessage(body)
+    } catch {
+      // no-op
+    }
+    throw new Error(message)
+  }
+
+  const blob = await resp.blob()
+  const downloadUrl = window.URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = downloadUrl
+  anchor.download = `${sessionId}_translated.pdf`
+  anchor.click()
+  window.URL.revokeObjectURL(downloadUrl)
+}
+
 export async function deleteSession(sessionId: string): Promise<void> {
   await request(`/sessions/${sessionId}`, { method: 'DELETE' })
 }

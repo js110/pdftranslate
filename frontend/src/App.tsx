@@ -4,6 +4,7 @@ import {
   createSession,
   deleteSession,
   ensurePage,
+  exportResultPdf,
   getState,
   originalPageUrl,
   retryPage,
@@ -131,6 +132,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [starting, setStarting] = useState(false)
   const [savingPdf, setSavingPdf] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [cacheVersion, setCacheVersion] = useState<Record<number, number>>({})
@@ -423,6 +425,21 @@ function App() {
     }
   }
 
+  const onExportResultPdf = async () => {
+    if (!session) return
+    setExportingPdf(true)
+    setError(null)
+    setInfo(null)
+    try {
+      await exportResultPdf(session.session_id)
+      setInfo('\u5bfc\u51fa\u7ed3\u679c PDF \u4e0b\u8f7d\u5df2\u5f00\u59cb')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '\u5bfc\u51fa PDF \u5931\u8d25')
+    } finally {
+      setExportingPdf(false)
+    }
+  }
+
   const onRetryPage = async (pageNo: number) => {
     if (!session) return
     setError(null)
@@ -586,6 +603,9 @@ function App() {
             </button>
             <button onClick={onSaveResultPdf} disabled={savingPdf}>
               {savingPdf ? '保存中...' : '保存当前结果 PDF'}
+            </button>
+            <button onClick={onExportResultPdf} disabled={exportingPdf}>
+              {exportingPdf ? '\u5bfc\u51fa\u4e2d...' : '\u5bfc\u51fa\u7ffb\u8bd1PDF'}
             </button>
             <button className="danger" onClick={destroySession}>
               {'\u7ed3\u675f\u4f1a\u8bdd'}

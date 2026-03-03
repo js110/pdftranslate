@@ -29,6 +29,49 @@ from app.workers.tasks import enqueue_page_if_needed, enqueue_translation_jobs, 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
+
+def _export_result_pdf(session_id: str) -> tuple[Path, int, int]:
+    settings = get_settings()
+    store = SessionStore()
+    meta = store.get_meta(session_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    page_count = int(meta["page_count"])
+    paths = store.paths(session_id)
+    export_dir = settings.storage_root / "_saved_results"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    out_path = export_dir / f"{session_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+
+    images: list[Image.Image] = []
+    translated_pages = 0
+    try:
+        for page_no in range(1, page_count + 1):
+            translated_path = paths.translated_dir / f"{page_no}.png"
+            source_path: Path
+            if translated_path.exists():
+                source_path = translated_path
+                translated_pages += 1
+            else:
+                source_path = paths.original_dir / f"{page_no}.png"
+            if not source_path.exists():
+                continue
+            with Image.open(source_path) as img:
+                images.append(img.convert("RGB"))
+
+        if not images:
+            raise HTTPException(status_code=500, detail="No page images available for PDF export")
+
+        first, *rest = images
+        first.save(out_path, "PDF", resolution=150.0, save_all=True, append_images=rest)
+    finally:
+        for img in images:
+            img.close()
+
+    return out_path, page_count, translated_pages
+
+
+
 @router.post("", response_model=CreateSessionResponse, responses={400: {"model": ErrorResponse}})
 async def create_session(file: UploadFile = File(...)) -> CreateSessionResponse:
     settings = get_settings()
@@ -236,48 +279,23 @@ def retry_page(session_id: str, page_no: int) -> RetryPageResponse:
 
 @router.post("/{session_id}/save-result-pdf", response_model=SaveResultPdfResponse)
 def save_result_pdf(session_id: str) -> SaveResultPdfResponse:
-    settings = get_settings()
-    store = SessionStore()
-    meta = store.get_meta(session_id)
-    if not meta:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    page_count = int(meta["page_count"])
-    paths = store.paths(session_id)
-    export_dir = settings.storage_root / "_saved_results"
-    export_dir.mkdir(parents=True, exist_ok=True)
-    out_path = export_dir / f"{session_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-
-    images: list[Image.Image] = []
-    translated_pages = 0
-    try:
-        for page_no in range(1, page_count + 1):
-            translated_path = paths.translated_dir / f"{page_no}.png"
-            source_path: Path
-            if translated_path.exists():
-                source_path = translated_path
-                translated_pages += 1
-            else:
-                source_path = paths.original_dir / f"{page_no}.png"
-            if not source_path.exists():
-                continue
-            with Image.open(source_path) as img:
-                images.append(img.convert("RGB"))
-
-        if not images:
-            raise HTTPException(status_code=500, detail="No page images available for PDF export")
-
-        first, *rest = images
-        first.save(out_path, "PDF", resolution=150.0, save_all=True, append_images=rest)
-    finally:
-        for img in images:
-            img.close()
+    out_path, page_count, translated_pages = _export_result_pdf(session_id)
 
     return SaveResultPdfResponse(
         session_id=session_id,
         saved_path=out_path.as_posix(),
         page_count=page_count,
         translated_pages=translated_pages,
+    )
+
+
+@router.get("/{session_id}/export-result.pdf")
+def export_result_pdf(session_id: str) -> FileResponse:
+    out_path, _, _ = _export_result_pdf(session_id)
+    return FileResponse(
+        path=out_path,
+        media_type="application/pdf",
+        filename=f"{session_id}_translated.pdf",
     )
 
 
