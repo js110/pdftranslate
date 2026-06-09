@@ -220,6 +220,7 @@ class _TextBlockJob:
 
 _ocr_instance: Any = None
 _layout_detector_instance: Any = None
+_remote_ocr_client: httpx.Client | None = None
 
 
 @dataclass
@@ -707,8 +708,8 @@ def translate_page_to_image(
             # This ensures content ABOVE the References heading is translated
             references_start_y = anchor_y
             reference_page_mode = True
-            logger.info(
-                "DEBUG: Force set references_start_y=anchor_y=%.2f for page %s (anchor_page=%s)",
+            logger.debug(
+                "Force set references_start_y=anchor_y=%.2f for page %s (anchor_page=%s)",
                 anchor_y,
                 page_no,
                 anchor_page_no,
@@ -2168,6 +2169,7 @@ def _extract_remote_ocr_markdown_text(
     image_index: int,
     result: PageProcessResult,
 ) -> str | None:
+    global _remote_ocr_client
     settings = get_settings()
     token = (settings.remote_ocr_token or "").strip()
     if not token:
@@ -2193,45 +2195,50 @@ def _extract_remote_ocr_markdown_text(
 
         headers = {"Authorization": f"Bearer {token}"}
         timeout = max(5.0, float(settings.remote_ocr_timeout_sec))
-        job_url = settings.remote_ocr_job_url
-        with httpx.Client(timeout=timeout) as client:
-            submit = client.post(
-                job_url,
-                headers=headers,
-                data={
-                    "model": settings.remote_ocr_model,
-                    "optionalPayload": json.dumps(optional_payload, ensure_ascii=False),
-                },
-                files={"file": ("crop.png", image_bytes, "image/png")},
+        if _remote_ocr_client is None or _remote_ocr_client.is_closed:
+            _remote_ocr_client = httpx.Client(
+                timeout=timeout,
+                limits=httpx.Limits(max_connections=16, max_keepalive_connections=8),
             )
-            payload = _parse_remote_ocr_response(submit, context="submit_remote_ocr")
-            job_id = str((payload.get("data") or {}).get("jobId") or "").strip()
-            if not job_id:
-                raise RuntimeError(f"remote OCR returned no jobId: {payload}")
+        client = _remote_ocr_client
+        job_url = settings.remote_ocr_job_url
+        submit = client.post(
+            job_url,
+            headers=headers,
+            data={
+                "model": settings.remote_ocr_model,
+                "optionalPayload": json.dumps(optional_payload, ensure_ascii=False),
+            },
+            files={"file": ("crop.png", image_bytes, "image/png")},
+        )
+        payload = _parse_remote_ocr_response(submit, context="submit_remote_ocr")
+        job_id = str((payload.get("data") or {}).get("jobId") or "").strip()
+        if not job_id:
+            raise RuntimeError(f"remote OCR returned no jobId: {payload}")
 
-            poll_interval = max(1, int(settings.remote_ocr_poll_interval_sec))
-            deadline = time.monotonic() + max(10, int(settings.remote_ocr_max_wait_sec))
-            jsonl_url = ""
-            while True:
-                if time.monotonic() > deadline:
-                    raise TimeoutError("remote OCR polling timed out")
-                status_resp = client.get(f"{job_url.rstrip('/')}/{job_id}", headers=headers)
-                status_payload = _parse_remote_ocr_response(status_resp, context="poll_remote_ocr")
-                data = status_payload.get("data") or {}
-                state = str(data.get("state") or "").strip().lower()
-                if state == "done":
-                    jsonl_url = str(((data.get("resultUrl") or {}).get("jsonUrl")) or "").strip()
-                    break
-                if state == "failed":
-                    raise RuntimeError(str(data.get("errorMsg") or "remote OCR job failed"))
-                time.sleep(poll_interval)
+        poll_interval = max(1, int(settings.remote_ocr_poll_interval_sec))
+        deadline = time.monotonic() + max(10, int(settings.remote_ocr_max_wait_sec))
+        jsonl_url = ""
+        while True:
+            if time.monotonic() > deadline:
+                raise TimeoutError("remote OCR polling timed out")
+            status_resp = client.get(f"{job_url.rstrip('/')}/{job_id}", headers=headers)
+            status_payload = _parse_remote_ocr_response(status_resp, context="poll_remote_ocr")
+            data = status_payload.get("data") or {}
+            state = str(data.get("state") or "").strip().lower()
+            if state == "done":
+                jsonl_url = str(((data.get("resultUrl") or {}).get("jsonUrl")) or "").strip()
+                break
+            if state == "failed":
+                raise RuntimeError(str(data.get("errorMsg") or "remote OCR job failed"))
+            time.sleep(poll_interval)
 
-            if not jsonl_url:
-                raise RuntimeError("remote OCR completed without result URL")
-            jsonl_resp = client.get(jsonl_url)
-            jsonl_resp.raise_for_status()
-            extracted = _extract_markdown_text_from_jsonl(jsonl_resp.text)
-            return extracted or None
+        if not jsonl_url:
+            raise RuntimeError("remote OCR completed without result URL")
+        jsonl_resp = client.get(jsonl_url)
+        jsonl_resp.raise_for_status()
+        extracted = _extract_markdown_text_from_jsonl(jsonl_resp.text)
+        return extracted or None
 
     except Exception as exc:  # noqa: BLE001
         result.image_ocr_failures.append(
