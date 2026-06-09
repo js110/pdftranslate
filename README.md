@@ -68,7 +68,7 @@ docker compose up --build
 - 若你只用一个模型，备用 Key 可留空
 - 不要把 API Key 提交到 Git 仓库或发到公开聊天记录中
 
-### 三家模型 API Key 获取方式（官方）
+### 四家模型 API Key 获取方式（官方）
 
 #### 1. DeepSeek
 
@@ -114,6 +114,24 @@ docker compose up --build
    - `Base URL`（中国站）：`https://dashscope.aliyuncs.com/compatible-mode/v1`
    - `模型名称`：如 `qwen-plus`
    - `API Key`：刚创建的 Key
+
+#### 4. 小米 MiMo
+
+- 平台首页：`https://mimo.xiaomi.com/`
+- API Key 管理：`https://mimo.xiaomi.com/api-keys`
+- 官方文档：`https://mimo.xiaomi.com/docs`
+
+操作步骤：
+
+1. 注册并登录小米 MiMo 开放平台
+2. 进入 API Keys 页面，创建一个 Key 并复制保存
+3. 在本项目页面中选择「小米 MiMo」预设，或手动填写：
+   - `Base URL`：`https://api.xiaomimimo.com/v1`（国内站）或 `https://token-plan-sgp.xiaomimimo.com/v1`（新加坡站）
+   - `模型名称`：`mimo-v2.5-pro`
+   - `API Key`：刚创建的 Key
+4. 建议将超时设为 **120 秒**（MiMo 是推理模型，生成链较长，60 秒可能不够）
+
+> **注意**：MiMo 为推理模型，会先进行内部推理（reasoning），再输出翻译结果，因此响应时间比普通模型更长，但翻译质量通常更高。
 
 ## 开发模式热更新
 

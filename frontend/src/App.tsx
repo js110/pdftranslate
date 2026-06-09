@@ -31,7 +31,7 @@ const DEFAULT_BACKUP_API_KEY = (import.meta.env.VITE_DEFAULT_BACKUP_API_KEY as s
 const SHOW_RETRANSLATE_BUTTON =
   import.meta.env.DEV || ((import.meta.env.VITE_ENABLE_RETRANSLATE_BUTTON as string | undefined) ?? '') === 'true'
 
-type ProviderPresetKey = 'deepseek' | 'tencent' | 'aliyun' | 'custom'
+type ProviderPresetKey = 'deepseek' | 'tencent' | 'aliyun' | 'xiaomi' | 'custom'
 
 type ProviderPreset = {
   key: ProviderPresetKey
@@ -64,6 +64,13 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   },
   {
+    key: 'xiaomi',
+    label: '小米 MiMo',
+    id: 'mimo-main',
+    model: 'mimo-v2.5-pro',
+    baseUrl: 'https://api.xiaomimimo.com/v1',
+  },
+  {
     key: 'custom',
     label: '自定义（OpenAI 兼容）',
     id: 'custom-main',
@@ -78,6 +85,7 @@ function inferPresetKey(baseUrl: string, model: string): ProviderPresetKey {
   if (lowerUrl.includes('api.deepseek.com') || lowerModel.includes('deepseek')) return 'deepseek'
   if (lowerUrl.includes('hunyuan.cloud.tencent.com') || lowerModel.includes('hunyuan')) return 'tencent'
   if (lowerUrl.includes('dashscope.aliyuncs.com') || lowerModel.includes('qwen')) return 'aliyun'
+  if (lowerUrl.includes('xiaomimimo.com') || lowerModel.includes('mimo')) return 'xiaomi'
   return 'custom'
 }
 
@@ -279,13 +287,15 @@ function App() {
       return
     }
 
+    const inferTimeout = (presetKey: ProviderPresetKey) => (presetKey === 'xiaomi' ? 120 : 60)
+
     const payload: StartSessionRequest = {
       primary_provider: {
         id: primaryId,
         model: primaryModel,
         base_url: primaryBaseUrl.trim() || undefined,
         api_key: primaryKey,
-        timeout_sec: 60,
+        timeout_sec: inferTimeout(primaryPreset),
       },
       style_profile: 'academic_conservative',
     }
@@ -296,7 +306,7 @@ function App() {
         model: backupModel,
         base_url: backupBaseUrl.trim() || undefined,
         api_key: backupKey,
-        timeout_sec: 60,
+        timeout_sec: inferTimeout(backupPreset),
       }
     }
 

@@ -485,6 +485,14 @@ def _is_deepseek_provider(provider: ProviderRuntime, base_url: str) -> bool:
     return "deepseek" in provider.id.lower()
 
 
+def _is_mimo_provider(provider: ProviderRuntime, base_url: str) -> bool:
+    if "xiaomimimo.com" in base_url:
+        return True
+    if "mimo" in provider.model.lower():
+        return True
+    return "mimo" in provider.id.lower()
+
+
 def _build_payload(provider: ProviderRuntime, messages: list[dict[str, str]], base_url: str) -> dict[str, Any]:
     settings = get_settings()
     if _is_deepseek_provider(provider, base_url):
@@ -499,6 +507,12 @@ def _build_payload(provider: ProviderRuntime, messages: list[dict[str, str]], ba
 
     if _is_hunyuan_endpoint(base_url):
         payload["enable_enhancement"] = True
+
+    # MiMo is a reasoning model: it spends tokens on reasoning_content first,
+    # then writes the actual answer in content.  If max_tokens is too low the
+    # content field comes back empty.  Force a generous floor.
+    if _is_mimo_provider(provider, base_url):
+        payload["max_tokens"] = max(payload.get("max_tokens", 0) or 0, 8192)
 
     return payload
 
@@ -548,7 +562,8 @@ def _chat_completion(provider: ProviderRuntime, messages: list[dict[str, str]]) 
         raise TranslationError(_format_http_error(resp))
 
     data = resp.json()
-    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    message = data.get("choices", [{}])[0].get("message", {})
+    content = message.get("content", "")
     if isinstance(content, list):
         parts: list[str] = []
         for item in content:
@@ -557,6 +572,12 @@ def _chat_completion(provider: ProviderRuntime, messages: list[dict[str, str]]) 
         content = "\n".join(parts)
 
     if not isinstance(content, str) or not content.strip():
+        # MiMo reasoning models: content can be empty when max_tokens is too
+        # low and the model spent all budget on reasoning_content.
+        if message.get("reasoning_content"):
+            raise TranslationError(
+                "MiMo reasoning model returned empty content (max_tokens too low for reasoning chain)"
+            )
         raise TranslationError("empty translation response")
     return content.strip()
 
