@@ -133,6 +133,35 @@ docker compose up --build
 
 > **注意**：MiMo 为推理模型，会先进行内部推理（reasoning），再输出翻译结果，因此响应时间比普通模型更长，但翻译质量通常更高。
 
+## 图片 OCR 配置（可选）
+
+如果 PDF 中有图表、架构图等包含文字的图片，可以启用 OCR 来识别并翻译图中文字。
+
+### 启用方式
+
+在项目根目录创建 `.env` 文件（已被 `.gitignore` 忽略，不会提交）：
+
+```env
+REMOTE_OCR_TOKEN=你的百度PaddleOCR云API Token
+```
+
+然后修改 `docker-compose.yml` 中的环境变量：
+
+```yaml
+ENABLE_IMAGE_OCR: "true"           # 本地 PaddleOCR（需要 paddleocr 依赖）
+ENABLE_REMOTE_IMAGE_OCR: "true"    # 百度云端 PaddleOCR API
+```
+
+重启生效：`docker compose up -d`
+
+> **安全提示**：不要把 Token 直接写在 `docker-compose.yml` 里提交到 Git。使用 `.env` 文件或环境变量传入。
+
+### 获取 PaddleOCR 云 API Token
+
+- 平台地址：`https://aistudio.baidu.com/`
+- API 文档：`https://paddleocr.aistudio-app.com/`
+- 在控制台创建应用后获取 Token
+
 ## 开发模式热更新
 
 使用 dev 覆盖配置启动（API、Worker、前端开发服务器热更新）：

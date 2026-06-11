@@ -23,9 +23,9 @@ x-common-env: &common-env
   ENABLE_IMAGE_OCR: "false"
   # Set ENABLE_REMOTE_IMAGE_OCR=true + REMOTE_OCR_TOKEN to use Baidu PaddleOCR
   # Cloud API as fallback when local OCR fails or is unavailable.
-  ENABLE_REMOTE_IMAGE_OCR: "false"
+  ENABLE_REMOTE_IMAGE_OCR: "true"
   REMOTE_OCR_JOB_URL: https://paddleocr.aistudio-app.com/api/v2/ocr/jobs
-  REMOTE_OCR_TOKEN: ""
+  REMOTE_OCR_TOKEN: ${REMOTE_OCR_TOKEN:-}  # Set in .env file
   REMOTE_OCR_MODEL: PaddleOCR-VL-1.6
   REMOTE_OCR_TIMEOUT_SEC: 30
   REMOTE_OCR_POLL_INTERVAL_SEC: 5
