@@ -18,8 +18,8 @@
 - 左原文 / 右译文双栏阅读（强同步滚动）
 - 前 3 页优先翻译，其余页面后台继续处理
 - BYOK 模型配置（OpenAI + OpenAI 兼容接口）
-- 主备模型自动切换
-- 图片/图表文本 OCR + 回写重绘（尽力而为）
+- 图片 OCR（本地 PaddleOCR + 百度云端 API）
+- 小米 MiMo 推理模型支持
 - SSE 实时推送页面翻译进度
 - 会话级数据隔离与自动清理
 
@@ -40,20 +40,18 @@ docker compose up --build
 
 1. 启动服务后打开 `http://localhost:5173`
 2. 上传 PDF
-3. 在页面顶部填写主模型配置：
-   - `主模型 Base URL`（例如 OpenAI 兼容地址）
-   - `主模型名称`
-   - `主模型 API Key`
-4. 可选开启备用模型，并填写备用模型的 `Base URL / 模型名称 / API Key`
-5. 点击“开始翻译”
+3. 在页面顶部填写模型配置：
+   - `Base URL`（例如 OpenAI 兼容地址）
+   - `模型名称`
+   - `API Key`
+4. 点击"开始翻译"
 
 ### 方式二：启动前预置默认 Key（可选）
 
 在项目根目录新建 `.env`，填入：
 
 ```env
-VITE_DEFAULT_PRIMARY_API_KEY=你的主模型Key
-VITE_DEFAULT_BACKUP_API_KEY=你的备用模型Key
+VITE_DEFAULT_PRIMARY_API_KEY=你的模型Key
 ```
 
 然后启动：
@@ -65,7 +63,6 @@ docker compose up --build
 说明：
 
 - 页面里仍可手动修改模型参数与 Key
-- 若你只用一个模型，备用 Key 可留空
 - 不要把 API Key 提交到 Git 仓库或发到公开聊天记录中
 
 ### 四家模型 API Key 获取方式（官方）
@@ -190,6 +187,6 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build red
 
 ## 说明
 
-- 本项目按设计不提供“直接下载译文文件”的在线出口
+- 本项目按设计不提供"直接下载译文文件"的在线出口
 - 会话数据是临时数据，过期或手动删除后会清理
 - OCR 效果受源 PDF 图片清晰度与运行环境影响

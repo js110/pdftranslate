@@ -16,18 +16,12 @@ import {
 import type { EventEnvelope, SessionCreateResponse, SessionState, StartSessionRequest } from './types'
 
 const PRIMARY_KEY_STORAGE = 'pdftranslate_primary_api_key'
-const BACKUP_KEY_STORAGE = 'pdftranslate_backup_api_key'
 const LAST_SESSION_STORAGE = 'pdftranslate_last_session_id'
 const DEFAULT_PRIMARY_ID = (import.meta.env.VITE_DEFAULT_PRIMARY_ID as string | undefined) ?? 'deepseek-main'
 const DEFAULT_PRIMARY_MODEL = (import.meta.env.VITE_DEFAULT_PRIMARY_MODEL as string | undefined) ?? 'deepseek-chat'
 const DEFAULT_PRIMARY_BASE_URL =
   (import.meta.env.VITE_DEFAULT_PRIMARY_BASE_URL as string | undefined) ?? 'https://api.deepseek.com/v1'
 const DEFAULT_PRIMARY_API_KEY = (import.meta.env.VITE_DEFAULT_PRIMARY_API_KEY as string | undefined) ?? ''
-const DEFAULT_BACKUP_ID = (import.meta.env.VITE_DEFAULT_BACKUP_ID as string | undefined) ?? 'deepseek-backup'
-const DEFAULT_BACKUP_MODEL = (import.meta.env.VITE_DEFAULT_BACKUP_MODEL as string | undefined) ?? 'deepseek-chat'
-const DEFAULT_BACKUP_BASE_URL =
-  (import.meta.env.VITE_DEFAULT_BACKUP_BASE_URL as string | undefined) ?? 'https://api.deepseek.com/v1'
-const DEFAULT_BACKUP_API_KEY = (import.meta.env.VITE_DEFAULT_BACKUP_API_KEY as string | undefined) ?? ''
 const SHOW_RETRANSLATE_BUTTON =
   import.meta.env.DEV || ((import.meta.env.VITE_ENABLE_RETRANSLATE_BUTTON as string | undefined) ?? '') === 'true'
 
@@ -152,19 +146,8 @@ function App() {
     const local = readLocalStorage(PRIMARY_KEY_STORAGE).trim()
     return DEFAULT_PRIMARY_API_KEY || local
   })
-  const [backupEnabled, setBackupEnabled] = useState(true)
-  const [backupId, setBackupId] = useState(DEFAULT_BACKUP_ID)
-  const [backupModel, setBackupModel] = useState(DEFAULT_BACKUP_MODEL)
-  const [backupBaseUrl, setBackupBaseUrl] = useState(DEFAULT_BACKUP_BASE_URL)
-  const [backupKey, setBackupKey] = useState(() => {
-    const local = readLocalStorage(BACKUP_KEY_STORAGE).trim()
-    return DEFAULT_BACKUP_API_KEY || local
-  })
   const [primaryPreset, setPrimaryPreset] = useState<ProviderPresetKey>(() =>
     inferPresetKey(DEFAULT_PRIMARY_BASE_URL, DEFAULT_PRIMARY_MODEL),
-  )
-  const [backupPreset, setBackupPreset] = useState<ProviderPresetKey>(() =>
-    inferPresetKey(DEFAULT_BACKUP_BASE_URL, DEFAULT_BACKUP_MODEL),
   )
 
   const leftRef = useRef<HTMLDivElement | null>(null)
@@ -300,15 +283,7 @@ function App() {
       style_profile: 'academic_conservative',
     }
 
-    if (backupEnabled && backupKey.trim()) {
-      payload.backup_provider = {
-        id: backupId,
-        model: backupModel,
-        base_url: backupBaseUrl.trim() || undefined,
-        api_key: backupKey,
-        timeout_sec: inferTimeout(backupPreset),
-      }
-    }
+
 
     setStarting(true)
     setError(null)
@@ -333,10 +308,7 @@ function App() {
     window.localStorage.setItem(PRIMARY_KEY_STORAGE, primaryKey)
   }, [primaryKey])
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    window.localStorage.setItem(BACKUP_KEY_STORAGE, backupKey)
-  }, [backupKey])
+
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -562,50 +534,7 @@ function App() {
             </label>
           </div>
 
-          <div className="controls-row backup-toggle-row">
-            <label className="checkbox-label">
-              <input type="checkbox" checked={backupEnabled} onChange={(e) => setBackupEnabled(e.target.checked)} />
-              {'\u542f\u7528\u5907\u7528\u6a21\u578b'}
-            </label>
-          </div>
 
-          {backupEnabled && (
-            <div className="controls-row">
-              <label>
-                {'备用模型提供商'}
-                <select
-                  value={backupPreset}
-                  onChange={(e) => {
-                    const presetKey = e.target.value as ProviderPresetKey
-                    setBackupPreset(presetKey)
-                    applyProviderPreset(presetKey, setBackupId, setBackupModel, setBackupBaseUrl)
-                  }}
-                >
-                  {PROVIDER_PRESETS.map((preset) => (
-                    <option key={`backup-${preset.key}`} value={preset.key}>
-                      {preset.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {'\u5907\u7528\u6a21\u578b ID'}
-                <input value={backupId} onChange={(e) => setBackupId(e.target.value)} />
-              </label>
-              <label>
-                {'\u5907\u7528\u6a21\u578b\u540d\u79f0'}
-                <input value={backupModel} onChange={(e) => setBackupModel(e.target.value)} />
-              </label>
-              <label>
-                {'\u5907\u7528\u6a21\u578b Base URL'}
-                <input value={backupBaseUrl} onChange={(e) => setBackupBaseUrl(e.target.value)} />
-              </label>
-              <label>
-                {'\u5907\u7528\u6a21\u578b API Key'}
-                <input type="password" value={backupKey} onChange={(e) => setBackupKey(e.target.value)} />
-              </label>
-            </div>
-          )}
 
           <div className="action-row">
             <button onClick={onStart} disabled={startBlocked}>

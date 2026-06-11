@@ -82,10 +82,6 @@ services:
         VITE_DEFAULT_PRIMARY_MODEL: deepseek-chat
         VITE_DEFAULT_PRIMARY_BASE_URL: https://api.deepseek.com/v1
         VITE_DEFAULT_PRIMARY_API_KEY: ${VITE_DEFAULT_PRIMARY_API_KEY:-}
-        VITE_DEFAULT_BACKUP_ID: qwen-backup
-        VITE_DEFAULT_BACKUP_MODEL: qwen-plus
-        VITE_DEFAULT_BACKUP_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
-        VITE_DEFAULT_BACKUP_API_KEY: ${VITE_DEFAULT_BACKUP_API_KEY:-}
     ports:
       - "5173:80"
     depends_on:
