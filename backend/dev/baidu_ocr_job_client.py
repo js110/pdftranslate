@@ -11,7 +11,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 JOB_URL = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs"
-DEFAULT_MODEL = "PaddleOCR-VL-1.5"
+DEFAULT_MODEL = "PaddleOCR-VL-1.6"
 DEFAULT_OPTIONAL_PAYLOAD = {
     "useDocOrientationClassify": False,
     "useDocUnwarping": False,
@@ -110,7 +110,7 @@ def submit_job(
     optional_payload: dict[str, Any],
 ) -> str:
     headers = {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"bearer {token}",
     }
 
     print(f"Processing file: {file_value}")
@@ -154,7 +154,7 @@ def poll_job_until_done(
     max_wait_seconds: int,
 ) -> str:
     headers = {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"bearer {token}",
     }
     deadline = time.monotonic() + max_wait_seconds
     print("Start polling for results")

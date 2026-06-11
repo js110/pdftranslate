@@ -2193,7 +2193,7 @@ def _extract_remote_ocr_markdown_text(
             crop.save(buff, format="PNG")
             image_bytes = buff.getvalue()
 
-        headers = {"Authorization": f"Bearer {token}"}
+        headers = {"Authorization": f"bearer {token}"}
         timeout = max(5.0, float(settings.remote_ocr_timeout_sec))
         if _remote_ocr_client is None or _remote_ocr_client.is_closed:
             _remote_ocr_client = httpx.Client(
