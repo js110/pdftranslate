@@ -138,6 +138,8 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [cacheVersion, setCacheVersion] = useState<Record<number, number>>({})
+  const [controlsOpen, setControlsOpen] = useState(true)
+  const [dragging, setDragging] = useState(false)
 
   const [primaryId, setPrimaryId] = useState(DEFAULT_PRIMARY_ID)
   const [primaryModel, setPrimaryModel] = useState(DEFAULT_PRIMARY_MODEL)
@@ -378,6 +380,18 @@ function App() {
     }
   }, [state?.overall_status, error])
 
+  useEffect(() => {
+    if (!info) return
+    const t = setTimeout(() => setInfo(null), 5000)
+    return () => clearTimeout(t)
+  }, [info])
+
+  useEffect(() => {
+    if (state?.overall_status === 'running') {
+      setControlsOpen(false)
+    }
+  }, [state?.overall_status])
+
   const destroySession = async () => {
     if (!session) return
     await deleteSession(session.session_id)
@@ -479,7 +493,22 @@ function App() {
             <h2>{'\u4e0a\u4f20\u79d1\u7814 PDF'}</h2>
             <p className="upload-desc">{'\u5355\u7bc7\u8bba\u6587\u5728\u7ebf\u53cc\u680f\u7ffb\u8bd1\uff0c\u652f\u6301\u524d 3 \u9875\u4f18\u5148\u53ef\u8bfb'}</p>
             <form onSubmit={onUpload} className="upload-form">
-              <label className="file-picker">
+              <label
+                className={`file-picker${dragging ? ' dragging' : ''}`}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  setDragging(true)
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  setDragging(false)
+                  const dropped = e.dataTransfer.files[0]
+                  if (dropped && dropped.type === 'application/pdf') {
+                    setFile(dropped)
+                  }
+                }}
+              >
                 <input
                   type="file"
                   accept="application/pdf"
@@ -498,7 +527,16 @@ function App() {
 
       {session && (
         <section className="panel controls-panel">
-          <div className="controls-row">
+          <div className="controls-panel-header">
+            <button
+              type="button"
+              className="controls-toggle"
+              onClick={() => setControlsOpen((prev) => !prev)}
+            >
+              {controlsOpen ? '收起设置 ▲' : '展开设置 ▼'}
+            </button>
+          </div>
+          {controlsOpen && <div className="controls-row">
             <label>
               {'主模型提供商'}
               <select
@@ -532,7 +570,7 @@ function App() {
               {'\u4e3b\u6a21\u578b API Key'}
               <input type="password" value={primaryKey} onChange={(e) => setPrimaryKey(e.target.value)} />
             </label>
-          </div>
+          </div>}
 
 
 
@@ -560,6 +598,18 @@ function App() {
               </span>
             )}
           </div>
+
+          {state?.overall_status === 'running' && progress.total > 0 && (
+            <div className="progress-bar-wrap">
+              <div
+                className="progress-bar"
+                style={{ width: `${Math.round((progress.ready / progress.total) * 100)}%` }}
+              />
+              <span className="progress-label">
+                {Math.round((progress.ready / progress.total) * 100)}% ({progress.ready}/{progress.total})
+              </span>
+            </div>
+          )}
         </section>
       )}
 
