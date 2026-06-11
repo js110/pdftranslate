@@ -1,45 +1,44 @@
+x-common-env: &common-env
+  REDIS_URL: redis://redis:6379/0
+  STORAGE_ROOT: /tmp/pdftranslate/sessions
+  SESSION_TTL_MINUTES: 120
+  MAX_UPLOAD_MB: 30
+  RENDER_DPI: 160
+  HIGH_PRIORITY_QUEUE: page_high
+  NORMAL_PRIORITY_QUEUE: page_normal
+  MAX_RETRIES_PER_PROVIDER: 1
+  BATCH_SEGMENT_SIZE: 36
+  BATCH_SEGMENT_CHAR_LIMIT: 8000
+  TRANSLATION_TEMPERATURE: 0.2
+  ENABLE_STRICT_LOW_QUALITY_RETRY: "true"
+  CLEAR_TRANSLATION_MEMORY_ON_RETRY: "true"
+  ENABLE_LAYOUT_DETECTION_GUARD: "true"
+  LAYOUT_DETECTION_LANG: en
+  ENABLE_GROBID_REFERENCE_GUARD: "false"
+  GROBID_BASE_URL: ""
+  GROBID_TIMEOUT_SEC: 30
+  # --- Image OCR (disabled by default) ---
+  # Set ENABLE_IMAGE_OCR=true to use local PaddleOCR for image text extraction.
+  # Requires paddleocr+paddlepaddle (already in requirements.txt).
+  ENABLE_IMAGE_OCR: "false"
+  # Set ENABLE_REMOTE_IMAGE_OCR=true + REMOTE_OCR_TOKEN to use Baidu PaddleOCR
+  # Cloud API as fallback when local OCR fails or is unavailable.
+  ENABLE_REMOTE_IMAGE_OCR: "false"
+  REMOTE_OCR_JOB_URL: https://paddleocr.aistudio-app.com/api/v2/ocr/jobs
+  REMOTE_OCR_TOKEN: ""
+  REMOTE_OCR_MODEL: PaddleOCR-VL-1.6
+  REMOTE_OCR_TIMEOUT_SEC: 30
+  REMOTE_OCR_POLL_INTERVAL_SEC: 5
+  REMOTE_OCR_MAX_WAIT_SEC: 180
+  REMOTE_OCR_USE_DOC_ORIENTATION_CLASSIFY: "false"
+  REMOTE_OCR_USE_DOC_UNWARPING: "false"
+  REMOTE_OCR_USE_CHART_RECOGNITION: "false"
+
 services:
   redis:
     image: redis:7.4-alpine
     ports:
       - "6379:6379"
-
-  x-env:
-    environment: &common-env
-      REDIS_URL: redis://redis:6379/0
-      STORAGE_ROOT: /tmp/pdftranslate/sessions
-      SESSION_TTL_MINUTES: 120
-      MAX_UPLOAD_MB: 30
-      RENDER_DPI: 160
-      HIGH_PRIORITY_QUEUE: page_high
-      NORMAL_PRIORITY_QUEUE: page_normal
-      MAX_RETRIES_PER_PROVIDER: 1
-      BATCH_SEGMENT_SIZE: 36
-      BATCH_SEGMENT_CHAR_LIMIT: 8000
-      TRANSLATION_TEMPERATURE: 0.2
-      ENABLE_STRICT_LOW_QUALITY_RETRY: "true"
-      CLEAR_TRANSLATION_MEMORY_ON_RETRY: "true"
-      ENABLE_LAYOUT_DETECTION_GUARD: "true"
-      LAYOUT_DETECTION_LANG: en
-      ENABLE_GROBID_REFERENCE_GUARD: "false"
-      GROBID_BASE_URL: ""
-      GROBID_TIMEOUT_SEC: 30
-      # --- Image OCR (disabled by default) ---
-      # Set ENABLE_IMAGE_OCR=true to use local PaddleOCR for image text extraction.
-      # Requires paddleocr+paddlepaddle (already in requirements.txt).
-      ENABLE_IMAGE_OCR: "false"
-      # Set ENABLE_REMOTE_IMAGE_OCR=true + REMOTE_OCR_TOKEN to use Baidu PaddleOCR
-      # Cloud API as fallback when local OCR fails or is unavailable.
-      ENABLE_REMOTE_IMAGE_OCR: "false"
-      REMOTE_OCR_JOB_URL: https://paddleocr.aistudio-app.com/api/v2/ocr/jobs
-      REMOTE_OCR_TOKEN: ""
-      REMOTE_OCR_MODEL: PaddleOCR-VL-1.6
-      REMOTE_OCR_TIMEOUT_SEC: 30
-      REMOTE_OCR_POLL_INTERVAL_SEC: 5
-      REMOTE_OCR_MAX_WAIT_SEC: 180
-      REMOTE_OCR_USE_DOC_ORIENTATION_CLASSIFY: "false"
-      REMOTE_OCR_USE_DOC_UNWARPING: "false"
-      REMOTE_OCR_USE_CHART_RECOGNITION: "false"
 
   api:
     build:
