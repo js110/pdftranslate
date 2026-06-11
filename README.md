@@ -123,7 +123,7 @@ docker compose up --build
 1. 注册并登录小米 MiMo 开放平台
 2. 进入 API Keys 页面，创建一个 Key 并复制保存
 3. 在本项目页面中选择「小米 MiMo」预设，或手动填写：
-   - `Base URL`：`https://api.xiaomimimo.com/v1`（国内站）或 `https://token-plan-sgp.xiaomimimo.com/v1`（新加坡站）
+   - `Base URL`：`https://token-plan-sgp.xiaomimimo.com/v1`（新加坡站）或 `https://api.xiaomimimo.com/v1`（国内站）
    - `模型名称`：`mimo-v2.5-pro`
    - `API Key`：刚创建的 Key
 4. 建议将超时设为 **120 秒**（MiMo 是推理模型，生成链较长，60 秒可能不够）

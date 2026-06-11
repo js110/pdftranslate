@@ -62,7 +62,7 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
     label: '小米 MiMo',
     id: 'mimo-main',
     model: 'mimo-v2.5-pro',
-    baseUrl: 'https://api.xiaomimimo.com/v1',
+    baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1',
   },
   {
     key: 'custom',
