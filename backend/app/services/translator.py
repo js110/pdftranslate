@@ -342,7 +342,9 @@ def _protect_math_content(text: str) -> tuple[str, list[tuple[str, str]]]:
 def _restore_math_content(text: str, replacements: list[tuple[str, str]]) -> str:
     restored = text
     for token, original in replacements:
-        restored = re.sub(re.escape(token), original, restored, flags=re.IGNORECASE)
+        # Use a callable replacement: a plain repl string would re-interpret
+        # backslashes in LaTeX (e.g. \frac -> form-feed + "rac").
+        restored = re.sub(re.escape(token), lambda _m: original, restored, flags=re.IGNORECASE)
     return restored
 
 
