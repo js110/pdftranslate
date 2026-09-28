@@ -10,6 +10,9 @@ class Settings(BaseSettings):
 
     app_name: str = "pdf-translate-online"
     api_prefix: str = "/v1"
+    # Comma-separated list of allowed browser origins. Keep this restrictive;
+    # the API has no auth, so it should only accept the bundled frontend.
+    cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     redis_url: str = "redis://redis:6379/0"
     storage_root: Path = Field(default=Path("/tmp/pdftranslate/sessions"))
     session_ttl_minutes: int = 120

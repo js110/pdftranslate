@@ -1,5 +1,6 @@
 x-common-env: &common-env
   REDIS_URL: redis://redis:6379/0
+  CORS_ALLOW_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
   STORAGE_ROOT: /tmp/pdftranslate/sessions
   SESSION_TTL_MINUTES: 120
   MAX_UPLOAD_MB: 30
@@ -37,8 +38,8 @@ x-common-env: &common-env
 services:
   redis:
     image: redis:7.4-alpine
-    ports:
-      - "6379:6379"
+    # No host port mapping: redis is only reachable inside the compose network.
+    # Exposing it would also expose the provider API keys stored per session.
 
   api:
     build:
