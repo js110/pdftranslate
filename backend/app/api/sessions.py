@@ -6,8 +6,8 @@ from pathlib import Path
 
 import fitz
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from PIL import Image
 
 from app.core.settings import get_settings
 from app.schemas.session import (
@@ -24,7 +24,7 @@ from app.schemas.session import (
 )
 from app.services.events import sse_stream
 from app.services.pdf_pipeline import extract_glossary_terms, render_original_pages
-from app.services.session_store import SessionStore
+from app.services.session_store import SessionPaths, SessionStore
 from app.workers.tasks import enqueue_page_if_needed, enqueue_translation_jobs, ensure_pages_enqueued
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -41,8 +41,36 @@ def _checked_session_id(session_id: str) -> str:
     return session_id
 
 
+def _priority_page_count(page_count: int) -> int:
+    return min(3, page_count)
+
+
+def _validate_pdf_page_count(content: bytes) -> int:
+    try:
+        with fitz.open(stream=content, filetype="pdf") as doc:
+            return doc.page_count
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid PDF: {exc}") from exc
+
+
+def _ensure_original_page(paths: SessionPaths, page_no: int) -> Path:
+    """Return the original PNG for a page, rendering it on demand if needed.
+
+    Pages render lazily (priority pages at upload, the rest when first
+    requested), so callers must tolerate a missing file and render it here.
+    """
+    file_path = paths.original_dir / f"{page_no}.png"
+    if not file_path.exists():
+        render_original_pages(paths.source_pdf, paths.original_dir, pages=[page_no])
+    return file_path
+
+
 
 def _export_result_pdf(session_id: str) -> tuple[Path, int, int]:
+    """Build the translated PDF by streaming one page at a time into a new
+    document via PyMuPDF. Memory stays bounded (one page image at a time)
+    instead of holding every page's RGB bitmap at once like PIL save_all.
+    """
     _checked_session_id(session_id)
     settings = get_settings()
     store = SessionStore()
@@ -56,30 +84,37 @@ def _export_result_pdf(session_id: str) -> tuple[Path, int, int]:
     export_dir.mkdir(parents=True, exist_ok=True)
     out_path = export_dir / f"{session_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
 
-    images: list[Image.Image] = []
-    translated_pages = 0
     try:
+        src = fitz.open(paths.source_pdf)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=404, detail="Session file missing") from exc
+
+    translated_pages = 0
+    out: fitz.Document | None = None
+    try:
+        out = fitz.open()
         for page_no in range(1, page_count + 1):
             translated_path = paths.translated_dir / f"{page_no}.png"
-            source_path: Path
             if translated_path.exists():
-                source_path = translated_path
+                image_path: Path = translated_path
                 translated_pages += 1
             else:
-                source_path = paths.original_dir / f"{page_no}.png"
-            if not source_path.exists():
+                try:
+                    image_path = _ensure_original_page(paths, page_no)
+                except Exception:  # noqa: BLE001
+                    continue
+            if page_no > src.page_count:
                 continue
-            with Image.open(source_path) as img:
-                images.append(img.convert("RGB"))
-
-        if not images:
+            src_page = src[page_no - 1]
+            new_page = out.new_page(width=src_page.rect.width, height=src_page.rect.height)
+            new_page.insert_image(new_page.rect, filename=image_path.as_posix())
+        if out.page_count == 0:
             raise HTTPException(status_code=500, detail="No page images available for PDF export")
-
-        first, *rest = images
-        first.save(out_path, "PDF", resolution=150.0, save_all=True, append_images=rest)
+        out.save(out_path.as_posix(), garbage=3, deflate=True)
     finally:
-        for img in images:
-            img.close()
+        src.close()
+        if out is not None:
+            out.close()
 
     return out_path, page_count, translated_pages
 
@@ -96,6 +131,8 @@ async def create_session(file: UploadFile = File(...)) -> CreateSessionResponse:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
     if content[:5] != b"%PDF-":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid PDF header")
+    if content[:5] != b"%PDF-":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid PDF header")
 
     size_mb = len(content) / (1024 * 1024)
     if size_mb > settings.max_upload_mb:
@@ -104,11 +141,16 @@ async def create_session(file: UploadFile = File(...)) -> CreateSessionResponse:
             detail=f"File exceeds max size of {settings.max_upload_mb}MB",
         )
 
-    try:
-        with fitz.open(stream=content, filetype="pdf") as doc:
-            page_count = doc.page_count
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid PDF: {exc}") from exc
+    size_mb = len(content) / (1024 * 1024)
+    if size_mb > settings.max_upload_mb:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File exceeds max size of {settings.max_upload_mb}MB",
+        )
+
+    # CPU-bound PDF parsing must not run on the event loop (it would stall
+    # every other request and SSE stream for the duration).
+    page_count = await run_in_threadpool(_validate_pdf_page_count, content)
 
     store = SessionStore()
     meta = store.create_session(page_count=page_count)
@@ -116,9 +158,10 @@ async def create_session(file: UploadFile = File(...)) -> CreateSessionResponse:
     paths = store.paths(session_id)
     paths.source_pdf.write_bytes(content)
 
-    rendered_count = render_original_pages(paths.source_pdf, paths.original_dir)
-    if rendered_count != page_count:
-        raise HTTPException(status_code=500, detail="Failed to render original pages")
+    # Render only priority pages up front; the rest render lazily on first
+    # request (see _ensure_original_page) to keep upload response fast.
+    priority = list(range(1, _priority_page_count(page_count) + 1))
+    await run_in_threadpool(render_original_pages, paths.source_pdf, paths.original_dir, priority)
 
     return CreateSessionResponse(
         session_id=session_id,
@@ -201,10 +244,15 @@ def get_original_page(session_id: str, page_no: int) -> FileResponse:
         raise HTTPException(status_code=404, detail="Session not found")
     if page_no < 1 or page_no > int(meta["page_count"]):
         raise HTTPException(status_code=404, detail="Page not found")
-    file_path = store.paths(session_id).original_dir / f"{page_no}.png"
+    paths = store.paths(session_id)
+    try:
+        file_path = _ensure_original_page(paths, page_no)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail="Failed to render page") from exc
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Page not found")
-    return FileResponse(file_path)
+    # Original pages never change for a given session: safe to cache hard.
+    return FileResponse(file_path, headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
 
 @router.get("/{session_id}/pages/{page_no}/translated.png")

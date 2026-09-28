@@ -3,7 +3,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
+import random
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -83,6 +85,16 @@ class ProviderRuntime:
 
 class TranslationError(RuntimeError):
     pass
+
+
+def _retry_backoff_sleep(attempt_index: int) -> None:
+    """Exponential backoff with jitter between same-text retries.
+
+    Without this, a rate-limited (429) or throttling provider gets hit again
+    immediately and every retry burns a request for nothing.
+    """
+    delay = min(8.0, 0.5 * (2 ** attempt_index))
+    time.sleep(delay + random.uniform(0.0, 0.4))
 
 
 def _math_symbol_count(text: str) -> int:
@@ -728,7 +740,7 @@ def translate_with_fallback(
     attempts = max(1, int(max_retries))
 
     last_error: Exception | None = None
-    for _ in range(attempts):
+    for attempt in range(attempts):
         try:
             translated = _chat_completion(primary, messages)
             restored = _restore_math_content(translated, replacements)
@@ -738,9 +750,11 @@ def translate_with_fallback(
             return restored, primary.id, None
         except Exception as exc:  # noqa: BLE001
             last_error = exc
+            if attempt < attempts - 1:
+                _retry_backoff_sleep(attempt)
 
     if backup is not None:
-        for _ in range(attempts):
+        for attempt in range(attempts):
             try:
                 translated = _chat_completion(backup, messages)
                 restored = _restore_math_content(translated, replacements)
@@ -750,6 +764,8 @@ def translate_with_fallback(
                 return restored, backup.id, primary.id
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
+                if attempt < attempts - 1:
+                    _retry_backoff_sleep(attempt)
 
     raise TranslationError(str(last_error) if last_error else "translation failed")
 
@@ -769,7 +785,7 @@ def translate_batch_with_fallback(
     same_text_guard_enabled = not bool(settings.disable_same_text_retry_guard)
     attempts = max(1, int(max_retries))
     last_error: Exception | None = None
-    for _ in range(attempts):
+    for attempt in range(attempts):
         try:
             translated = _translate_batch_once(texts, primary, style_profile=style_profile, glossary=glossary)
             if same_text_guard_enabled and _has_excessive_untranslated_batch(texts, translated):
@@ -782,9 +798,11 @@ def translate_batch_with_fallback(
             return translated, primary.id, None
         except Exception as exc:  # noqa: BLE001
             last_error = exc
+            if attempt < attempts - 1:
+                _retry_backoff_sleep(attempt)
 
     if backup is not None:
-        for _ in range(attempts):
+        for attempt in range(attempts):
             try:
                 translated = _translate_batch_once(texts, backup, style_profile=style_profile, glossary=glossary)
                 if same_text_guard_enabled and _has_excessive_untranslated_batch(texts, translated):
@@ -797,5 +815,7 @@ def translate_batch_with_fallback(
                 return translated, backup.id, primary.id
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
+                if attempt < attempts - 1:
+                    _retry_backoff_sleep(attempt)
 
     raise TranslationError(str(last_error) if last_error else "batch translation failed")

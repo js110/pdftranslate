@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import logging
+import os
 import re
 import time
 import unicodedata
@@ -473,16 +474,35 @@ def extract_glossary_terms(source_pdf: Path, max_terms: int = 80) -> list[str]:
     return [term for term, _ in ranked[:max_terms]]
 
 
-def render_original_pages(source_pdf: Path, original_dir: Path) -> int:
+def render_original_pages(
+    source_pdf: Path,
+    original_dir: Path,
+    pages: list[int] | None = None,
+) -> int:
+    """Render page images from the source PDF.
+
+    ``pages`` limits rendering to the given 1-based page numbers (used for
+    lazy rendering of priority pages). ``None`` renders every page. Writes are
+    atomic (tmp file + replace) so concurrent readers never see partial PNGs.
+    """
     settings = get_settings()
+    original_dir.mkdir(parents=True, exist_ok=True)
     with fitz.open(source_pdf) as doc:
+        if pages is None:
+            page_numbers = range(1, doc.page_count + 1)
+        else:
+            page_numbers = sorted({p for p in pages if 1 <= p <= doc.page_count})
         zoom = settings.render_dpi / 72
         matrix = fitz.Matrix(zoom, zoom)
-        for page_no in range(1, doc.page_count + 1):
+        for page_no in page_numbers:
             page = doc[page_no - 1]
             pix = page.get_pixmap(matrix=matrix, alpha=False)
             out_path = original_dir / f"{page_no}.png"
-            pix.save(out_path.as_posix())
+            tmp_path = original_dir / f".{page_no}.png.tmp"
+            # pix.save() dispatches on file extension (".tmp" is unknown),
+            # so write explicit PNG bytes instead.
+            tmp_path.write_bytes(pix.tobytes("png"))
+            os.replace(tmp_path, out_path)
         return doc.page_count
 
 
