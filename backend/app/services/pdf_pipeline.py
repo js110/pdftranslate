@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import fitz
-import orjson
 from PIL import Image, ImageDraw
 
 from app.core.settings import get_settings
@@ -296,36 +295,7 @@ def translate_page_to_image(
             continue
         _render_text_job(job=job, translated=translated, draw=draw, result=result, page_no=page_no)
 
-    # Collect reflow records for the HTML reader. Unlike the baked image, the
-    # reflow view is not constrained by the original bbox, so we include every
-    # block. When translation failed (e.g. provider error) we fall back to the
-    # source text so the page is never blank.
-    for job in text_jobs:
-        translated = translated_map.get(job.block_index) or job.text
-        result.reflow_blocks.append(
-            {
-                "block_list_index": job.block_index,
-                "kind": "text",
-                "source_text": job.text,
-                "translated_text": translated,
-                "font_size": round(float(job.base_font_size), 2),
-                "bbox": [round(job.x0, 1), round(job.y0, 1), round(job.x1, 1), round(job.y1, 1)],
-            }
-        )
-    result.reflow_blocks.sort(key=lambda item: item.get("block_list_index", 0))
-    blocks_payload = {
-        "version": 1,
-        "page_no": page_no,
-        "width": float(pix.width),
-        "height": float(pix.height),
-        "blocks": [{k: v for k, v in item.items() if k != "block_list_index"} for item in result.reflow_blocks],
-    }
-    blocks_path = output_path.with_name(f"{output_path.stem}.blocks.json")
-    blocks_tmp = output_path.with_name(f".{output_path.stem}.blocks.json.tmp")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    blocks_tmp.write_bytes(orjson.dumps(blocks_payload))
-    os.replace(blocks_tmp, blocks_path)
-
     image.save(output_path)
     return result
 

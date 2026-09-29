@@ -11,9 +11,6 @@ class PageProcessResult:
     overflow_items: list[dict[str, Any]] = field(default_factory=list)
     untranslated_items: list[dict[str, Any]] = field(default_factory=list)
     fallback_events: list[dict[str, Any]] = field(default_factory=list)
-    # Per-block translation records (source order) for the HTML reflow reader.
-    # Written to ``<page>.blocks.json`` next to the rendered PNG.
-    reflow_blocks: list[dict[str, Any]] = field(default_factory=list)
 
 
 

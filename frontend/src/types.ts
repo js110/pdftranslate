@@ -46,22 +46,6 @@ export interface SaveResultPdfResponse {
   translated_pages: number
 }
 
-export interface ReflowBlock {
-  kind: 'text'
-  source_text: string
-  translated_text: string
-  font_size: number
-  bbox: [number, number, number, number]
-}
-
-export interface PageBlocks {
-  version: number
-  page_no: number
-  width: number
-  height: number
-  blocks: ReflowBlock[]
-}
-
 export interface SessionState {
   session_id: string
   overall_status: 'created' | 'running' | 'ready' | 'failed' | 'expired' | 'deleted'

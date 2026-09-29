@@ -330,57 +330,6 @@ button.danger {
   color: #ffb4b4;
 }
 
-.view-toggle {
-  display: inline-flex;
-  gap: 4px;
-  margin-left: 10px;
-  vertical-align: middle;
-}
-
-.view-toggle button {
-  font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  border: 1px solid #4d6487;
-  background: transparent;
-  color: #9eb4d4;
-  cursor: pointer;
-}
-
-.view-toggle button.active {
-  background: #2f415f;
-  border-color: #6c8cc7;
-  color: #e8f0ff;
-}
-
-.reflow-page {
-  position: relative;
-  container-type: inline-size;
-  width: 100%;
-  background: #fbfaf7;
-  color: #1f2733;
-  border-radius: 6px;
-  overflow: hidden;
-  font-family: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
-}
-
-/* Blocks are absolutely placed at their original PDF coordinates so the
-   translated page keeps the source layout (columns, margins, hierarchy). */
-.reflow-block {
-  position: absolute;
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.reflow-block.heading {
-  font-weight: 700;
-}
-
-.reflow-block.footnote {
-  color: #5b6675;
-}
-
 @media (max-width: 1024px) {
   .viewer-grid {
     grid-template-columns: 1fr;
