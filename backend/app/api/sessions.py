@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from app.schemas.session import (
 )
 from app.services.events import sse_stream
 from app.services.pdf_pipeline import extract_glossary_terms, render_original_pages
+from app.services.pdf_rewrite import REWRITE_STAGES
 from app.services.session_store import SessionPaths, SessionStore
 from app.workers.tasks import (
     enqueue_page_if_needed,
@@ -81,6 +83,7 @@ def _rewrite_state(session_id: str, meta: dict) -> RewriteState:
         done=int(raw.get("done", 0)),
         total=int(raw.get("total", 0)),
         error=raw.get("error"),
+        updated_at=float(raw["updated_at"]) if raw.get("updated_at") else None,
     )
 
 
@@ -402,17 +405,22 @@ def start_rewrite(
         raise HTTPException(status_code=404, detail="Session not found")
 
     current = _rewrite_state(session_id, meta)
-    if current.status == "running":
+    stale_limit = settings.rewrite_task_time_limit_sec + 120
+    if current.status == "running" and not current.running_is_stale(time.time(), stale_limit):
         raise HTTPException(status_code=409, detail="Rewrite already running")
 
     paths = store.paths(session_id)
     if request is not None:
         glossary = extract_glossary_terms(paths.source_pdf, max_terms=settings.glossary_max_terms)
+        existing = store.get_providers(session_id) or {}
         store.save_providers(
             session_id,
             {
                 "primary_provider": request.primary_provider.model_dump(),
-                "backup_provider": request.backup_provider.model_dump() if request.backup_provider else None,
+                # A request without a backup must not wipe an existing one.
+                "backup_provider": request.backup_provider.model_dump()
+                if request.backup_provider
+                else existing.get("backup_provider"),
                 "style_profile": request.style_profile,
                 "glossary": glossary,
             },
@@ -423,7 +431,14 @@ def start_rewrite(
     page_count = int(meta["page_count"])
     store.update_meta(
         session_id,
-        rewrite={"status": "running", "stage": "queued", "done": 0, "total": page_count, "error": None},
+        rewrite={
+            "status": "running",
+            "stage": "queued",
+            "done": 0,
+            "total": page_count * len(REWRITE_STAGES),
+            "error": None,
+            "updated_at": time.time(),
+        },
     )
     enqueue_rewrite_task(session_id)
     return _rewrite_state(session_id, store.get_meta(session_id) or {})
@@ -448,9 +463,11 @@ def export_rewrite_pdf(session_id: str) -> FileResponse:
         raise HTTPException(status_code=404, detail="Session not found")
     state = _rewrite_state(session_id, meta)
     if state.status == "running":
-        raise HTTPException(status_code=404, detail=f"Rewrite in progress ({state.stage} {state.done}/{state.total})")
+        raise HTTPException(
+            status_code=409, detail=f"Rewrite in progress ({state.stage} {state.done}/{state.total})"
+        )
     if state.status != "ready":
-        raise HTTPException(status_code=404, detail=f"Rewrite not ready (status={state.status})")
+        raise HTTPException(status_code=409, detail=f"Rewrite not ready (status={state.status})")
     file_path = store.paths(session_id).root / "rewritten.pdf"
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Rewritten PDF not found")

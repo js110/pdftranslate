@@ -231,18 +231,14 @@ function App() {
         setCacheVersion((prev) => ({ ...prev, [pageNo]: (prev[pageNo] ?? 0) + 1 }))
       }
       if (event.event === 'rewrite_progress') {
-        setRewrite((prev) =>
-          prev
-            ? {
-                ...prev,
-                status: 'running',
-                stage: String(event.payload.stage ?? prev.stage ?? ''),
-                done: Number(event.payload.done ?? 0),
-                total: Number(event.payload.total ?? prev.total ?? 0),
-                error: null,
-              }
-            : prev,
-        )
+        setRewrite((prev) => ({
+          session_id: session.session_id,
+          status: 'running',
+          stage: String(event.payload.stage ?? prev?.stage ?? ''),
+          done: Number(event.payload.done ?? prev?.done ?? 0),
+          total: Number(event.payload.total ?? prev?.total ?? 0),
+          error: null,
+        }))
       }
       if (event.event === 'rewrite_ready' || event.event === 'rewrite_failed') {
         void refreshRewrite(session.session_id)

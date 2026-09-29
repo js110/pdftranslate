@@ -330,6 +330,9 @@ def _detect_align(p: RewriteParagraph, col_center: float) -> str:
     xs0 = [ln.bbox.x0 for ln in lines]
     if max(xs0) - min(xs0) < 2:
         return "left"
+    xs1 = [ln.bbox.x1 for ln in lines]
+    if max(xs1) - min(xs1) < 2:
+        return "right"
     cs = [(ln.bbox.x0 + ln.bbox.x1) / 2 for ln in lines]
     if max(cs) - min(cs) < 3:
         return "center"
@@ -354,7 +357,8 @@ class RewriteFonts:
         self.regular_override = regular_override
         self.bold_override = bold_override
         self._regular: Path | None = None
-        self._bold: Path | None | bool = False  # False = not resolved yet, None = unavailable
+        self._bold: Path | None = None
+        self._bold_resolved = False
 
     @staticmethod
     def _is_collection(path: Path) -> bool:
@@ -365,7 +369,7 @@ class RewriteFonts:
             return False
 
     @staticmethod
-    def _default_candidates(bold: bool) -> list[str]:
+    def _default_candidates(bold: bool) -> tuple[list[str], tuple[str, ...]]:
         prefer = _BOLD_FACE_PREFER if bold else _REGULAR_FACE_PREFER
         names = "-Bold" if bold else "-Regular"
         return [
@@ -423,9 +427,10 @@ class RewriteFonts:
                     "no CJK font found for rewrite; set REWRITE_FONT_REGULAR (ttf/otf/ttc)"
                 )
             self._regular = regular
-        if self._bold is False:
+        if not self._bold_resolved:
             self._bold = self._resolve_one(bold=True)
-        return self._regular, (self._bold if isinstance(self._bold, Path) else None)
+            self._bold_resolved = True
+        return self._regular, self._bold
 
     def _resolve_one(self, *, bold: bool) -> Path | None:
         override = self.bold_override if bold else self.regular_override
@@ -437,10 +442,7 @@ class RewriteFonts:
             face = self._face_file(Path(cand), prefer, "bold" if bold else "reg", self.cache_dir)
             if face is not None:
                 return face
-        # No dedicated bold face: fall back to the regular face's bold sibling,
-        # otherwise plain regular (bold paragraphs render regular).
-        if bold:
-            return None
+        # No dedicated face found (bold paragraphs then render in regular).
         return None
 
     def has_bold(self) -> bool:
@@ -598,7 +600,6 @@ def write_page(
     *,
     reg_subset: Path,
     bold_subset: Path | None,
-    fonts: RewriteFonts,
     reg_metric: fitz.Font,
     bold_metric: fitz.Font | None,
 ) -> int:
@@ -656,6 +657,10 @@ def write_page(
 
 
 # ------------------------------------------------------------------ orchestration
+#: Sequential phases of one rewrite run, in progress-reporting order.
+REWRITE_STAGES: tuple[str, ...] = ("extract", "translate", "write")
+
+
 def rewrite_document(
     source_pdf: Path,
     out_pdf: Path,
@@ -713,7 +718,6 @@ def rewrite_document(
                 translated_pages[i],
                 reg_subset=reg_subset,
                 bold_subset=bold_subset,
-                fonts=fonts,
                 reg_metric=reg_metric,
                 bold_metric=bold_metric,
             )

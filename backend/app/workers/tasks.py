@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -11,7 +12,14 @@ from app.services.events import publish_event
 from app.services.jobtypes import PageProcessResult, _TextBlockJob
 from app.services.orchestrator import _translate_text_jobs
 from app.services.pdf_pipeline import translate_page_to_image
-from app.services.pdf_rewrite import RewriteFonts, RewriteParagraph, has_cjk, is_translatable, rewrite_document
+from app.services.pdf_rewrite import (
+    REWRITE_STAGES,
+    RewriteFonts,
+    RewriteParagraph,
+    has_cjk,
+    is_translatable,
+    rewrite_document,
+)
 from app.services.session_store import SessionStore
 from app.services.translator import ProviderRuntime, should_skip_translation
 from app.workers.celery_app import celery_app
@@ -98,6 +106,7 @@ def _rewrite_state_patch(store: SessionStore, session_id: str, **patch: Any) -> 
     meta = store.get_meta(session_id) or {}
     rewrite = dict(meta.get("rewrite") or {})
     rewrite.update(patch)
+    rewrite["updated_at"] = time.time()
     store.update_meta(session_id, rewrite=rewrite)
     return rewrite
 
@@ -136,8 +145,15 @@ def rewrite_pdf_task(session_id: str) -> dict[str, str]:
             stale.unlink()
 
     def on_progress(stage: str, done: int, total: int) -> None:
-        _rewrite_state_patch(store, session_id, status="running", stage=stage, done=done, total=total, error=None)
-        publish_event(session_id, "rewrite_progress", {"stage": stage, "done": done, "total": total})
+        # Cumulative across stages so the polled bar never runs backwards when
+        # a phase restarts at page 1.
+        stage_idx = REWRITE_STAGES.index(stage) if stage in REWRITE_STAGES else 0
+        overall_total = total * len(REWRITE_STAGES)
+        overall_done = stage_idx * total + done
+        _rewrite_state_patch(
+            store, session_id, status="running", stage=stage, done=overall_done, total=overall_total, error=None
+        )
+        publish_event(session_id, "rewrite_progress", {"stage": stage, "done": overall_done, "total": overall_total})
 
     def translate(page_no: int, paras: list[RewriteParagraph]) -> list[str | None]:
         jobs: list[_TextBlockJob] = []
@@ -183,9 +199,9 @@ def rewrite_pdf_task(session_id: str) -> dict[str, str]:
         return results
 
     _rewrite_state_patch(
-        store, session_id, status="running", stage="extract", done=0, total=page_count, error=None
+        store, session_id, status="running", stage="extract", done=0, total=page_count * len(REWRITE_STAGES), error=None
     )
-    publish_event(session_id, "rewrite_progress", {"stage": "extract", "done": 0, "total": page_count})
+    publish_event(session_id, "rewrite_progress", {"stage": "extract", "done": 0, "total": page_count * len(REWRITE_STAGES)})
 
     try:
         fonts = RewriteFonts(
@@ -220,8 +236,8 @@ def rewrite_pdf_task(session_id: str) -> dict[str, str]:
         session_id,
         status="ready",
         stage="done",
-        done=page_count,
-        total=page_count,
+        done=page_count * len(REWRITE_STAGES),
+        total=page_count * len(REWRITE_STAGES),
         error=None,
     )
     publish_event(session_id, "rewrite_ready", stats)

@@ -119,6 +119,17 @@ class RewriteState(BaseModel):
     done: int = 0
     total: int = 0
     error: str | None = None
+    updated_at: float | None = None
+
+    def running_is_stale(self, now: float, limit_sec: float) -> bool:
+        """True when status is 'running' but no heartbeat arrived within the
+        task time limit — the worker died (hard kill / broker loss) and the
+        rewrite must be restartable instead of wedged at 409 forever."""
+        if self.status != "running":
+            return False
+        if self.updated_at is None:
+            return True
+        return now - self.updated_at > limit_sec
 
 
 class RetryPageResponse(BaseModel):
