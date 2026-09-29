@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { ensurePage, fetchPageBlocks, originalPageUrl, translatedPageUrl } from '../api'
 import type { PageBlocks, PageState, SessionCreateResponse, SessionState } from '../types'
 import { SHOW_RETRANSLATE_BUTTON } from '../constants'
@@ -13,11 +14,10 @@ type Props = {
 type ViewMode = 'reflow' | 'image'
 
 const VIEW_MODE_STORAGE = 'pdftranslate_view_mode'
-const REFLOW_BASE_PX = 15.5
-const REFLOW_MIN_PX = 12.5
-const REFLOW_MAX_PX = 27
 const HEADING_RATIO = 1.18
 const FOOTNOTE_RATIO = 0.86
+// Matches .reflow-page font-family so canvas measurement agrees with layout.
+const REFLOW_FONT = "Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif"
 
 function syncScroll(from: HTMLDivElement, to: HTMLDivElement, syncingRef: { current: boolean }) {
   if (syncingRef.current) return
@@ -43,22 +43,99 @@ function medianTextFontSize(blocks: PageBlocks['blocks']): number {
   return sizes[Math.floor(sizes.length / 2)]
 }
 
+/** Position/size in % of the page box. */
+const pct = (value: number, total: number) => `${((value / total) * 100).toFixed(3)}%`
+/** Length in container-query width units (1cqw = 1% of page width). */
+const cqw = (value: number, total: number) => `${((value / total) * 100).toFixed(3)}cqw`
+
+let measureCtx: CanvasRenderingContext2D | null | undefined
+const measureCache = new Map<string, number>()
+
+function measureLine(text: string, fontSize: number, weight: number): number {
+  const key = `${weight}|${fontSize.toFixed(2)}|${text}`
+  const cached = measureCache.get(key)
+  if (cached !== undefined) return cached
+  if (measureCtx === undefined) {
+    try {
+      measureCtx = document.createElement('canvas').getContext('2d')
+    } catch {
+      measureCtx = null
+    }
+  }
+  let width: number
+  if (measureCtx) {
+    measureCtx.font = `${weight} ${fontSize}px ${REFLOW_FONT}`
+    width = measureCtx.measureText(text).width
+  } else {
+    width = text.length * fontSize * 0.6
+  }
+  if (measureCache.size > 4000) measureCache.clear()
+  measureCache.set(key, width)
+  return width
+}
+
+/**
+ * Renders translated text at the original PDF block coordinates so the layout
+ * mirrors the source page (columns, margins, headings, footnotes).
+ */
 function ReflowPage({ blocks }: { blocks: PageBlocks }) {
   const median = useMemo(() => medianTextFontSize(blocks.blocks), [blocks])
+  const pageWidth = blocks.width > 0 ? blocks.width : 1
+  const pageHeight = blocks.height > 0 ? blocks.height : 1
+
+  const laidOut = useMemo(() => {
+    const maxWidth = blocks.blocks.reduce((max, block) => Math.max(max, block.bbox[2] - block.bbox[0]), 0)
+    return blocks.blocks.map((block, index) => {
+      const [x0, y0, x1, y1] = block.bbox
+      const width = Math.max(1, x1 - x0)
+      const height = Math.max(1, y1 - y0)
+      const baseFont = block.font_size > 0 ? block.font_size : median || 33
+      const ratio = median > 0 ? baseFont / median : 1
+      const weight: 400 | 700 = ratio >= HEADING_RATIO ? 700 : 400
+      const outLines = block.translated_text.split('\n')
+      const widest = outLines.reduce((max, line) => Math.max(max, measureLine(line, baseFont, weight)), 0)
+      // Shrink to fit the original line box; past a point let it wrap instead.
+      const fit = width > 0 && widest > 0 ? (width * 0.97) / widest : 1
+      const scale = Math.min(1, Math.max(0.72, fit))
+      const fontPx = baseFont * scale
+      // How many rendered lines this text occupies after wrapping.
+      const wrapWidth = width * 0.97
+      const totalLines = outLines.reduce((sum, line) => {
+        const w = measureLine(line, baseFont, weight) * scale
+        return sum + (wrapWidth > 0 ? Math.max(1, Math.ceil(w / wrapWidth)) : 1)
+      }, 0)
+      // Single-line text is vertically centered in its original line box;
+      // multi-line keeps the source line spacing but never below ~1.18em.
+      const lineHeightPx = Math.max(height / Math.max(1, totalLines), fontPx * 1.18)
+      const centered =
+        ratio >= HEADING_RATIO ||
+        (width < maxWidth * 0.85 && Math.abs((x0 + x1) / 2 - pageWidth / 2) < pageWidth * 0.05)
+      const className =
+        'reflow-block' +
+        (ratio >= HEADING_RATIO ? ' heading' : '') +
+        (ratio <= FOOTNOTE_RATIO ? ' footnote' : '')
+      const style: CSSProperties = {
+        left: pct(x0, pageWidth),
+        top: pct(y0, pageHeight),
+        width: pct(width, pageWidth),
+        height: pct(height, pageHeight),
+        fontSize: cqw(fontPx, pageWidth),
+        lineHeight: cqw(lineHeightPx, pageWidth),
+        fontWeight: weight,
+        whiteSpace: 'pre-wrap',
+        textAlign: centered ? 'center' : fit < 1 ? 'justify' : 'left',
+      }
+      return { key: `b-${index}`, text: block.translated_text, className, style }
+    })
+  }, [blocks, median, pageWidth, pageHeight])
 
   return (
-    <div className="reflow-page">
-      {blocks.blocks.map((block, index) => {
-        const ratio = median > 0 ? block.font_size / median : 1
-        const className =
-          ratio >= HEADING_RATIO ? 'reflow-block heading' : ratio <= FOOTNOTE_RATIO ? 'reflow-block footnote' : 'reflow-block'
-        const px = Math.min(REFLOW_MAX_PX, Math.max(REFLOW_MIN_PX, REFLOW_BASE_PX * ratio))
-        return (
-          <p key={`text-${index}`} className={className} style={{ fontSize: `${px.toFixed(1)}px` }}>
-            {block.translated_text}
-          </p>
-        )
-      })}
+    <div className="reflow-page" style={{ aspectRatio: `${pageWidth} / ${pageHeight}` }}>
+      {laidOut.map((item) => (
+        <p key={item.key} className={item.className} style={item.style}>
+          {item.text}
+        </p>
+      ))}
     </div>
   )
 }

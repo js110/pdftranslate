@@ -354,29 +354,27 @@ button.danger {
 }
 
 .reflow-page {
+  position: relative;
+  container-type: inline-size;
+  width: 100%;
   background: #fbfaf7;
   color: #1f2733;
   border-radius: 6px;
-  padding: 18px 20px 20px;
-  line-height: 1.78;
+  overflow: hidden;
+  font-family: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
 }
 
-.reflow-page .reflow-block:first-child {
-  margin-top: 0;
-}
-
+/* Blocks are absolutely placed at their original PDF coordinates so the
+   translated page keeps the source layout (columns, margins, hierarchy). */
 .reflow-block {
-  margin: 0 0 0.85em;
+  position: absolute;
+  margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  text-align: justify;
 }
 
 .reflow-block.heading {
   font-weight: 700;
-  line-height: 1.4;
-  margin-top: 1.15em;
-  text-align: left;
 }
 
 .reflow-block.footnote {
