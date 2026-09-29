@@ -298,12 +298,10 @@ def translate_page_to_image(
 
     # Collect reflow records for the HTML reader. Unlike the baked image, the
     # reflow view is not constrained by the original bbox, so we include every
-    # translated block even when the image renderer had to keep the source text
-    # (overflow / font-too-small cases).
+    # block. When translation failed (e.g. provider error) we fall back to the
+    # source text so the page is never blank.
     for job in text_jobs:
-        translated = translated_map.get(job.block_index)
-        if translated is None:
-            continue
+        translated = translated_map.get(job.block_index) or job.text
         result.reflow_blocks.append(
             {
                 "block_list_index": job.block_index,

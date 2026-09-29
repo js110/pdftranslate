@@ -95,7 +95,7 @@ function TranslatedPageCard({
       <div className="page-meta">第 {page.page_no} 页</div>
       {page.status === 'ready' && (
         <>
-          {viewMode === 'reflow' && blocks ? (
+          {viewMode === 'reflow' && blocks && blocks.blocks.length > 0 ? (
             <ReflowPage blocks={blocks} />
           ) : (
             <img
