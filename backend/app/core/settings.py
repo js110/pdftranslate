@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     glossary_first_chunk_only: bool = True
     task_soft_time_limit_sec: int = 180
     task_time_limit_sec: int = 240
+    # In-place rewrite (原位翻译) runs as one long whole-document task.
+    rewrite_task_soft_time_limit_sec: int = 1800
+    rewrite_task_time_limit_sec: int = 2100
+    rewrite_font_regular: str | None = None
+    rewrite_font_bold: str | None = None
     enable_grobid_reference_guard: bool = False
     grobid_base_url: str | None = None
     grobid_timeout_sec: int = 30

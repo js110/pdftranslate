@@ -236,6 +236,17 @@ button.danger {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rewrite-progress {
+  font-size: 13px;
+  color: #8fd2ff;
+}
+
+.rewrite-error {
+  font-size: 13px;
+  color: #ff8f8f;
 }
 
 .state-tag {

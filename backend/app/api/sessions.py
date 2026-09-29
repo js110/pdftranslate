@@ -17,6 +17,7 @@ from app.schemas.session import (
     ErrorResponse,
     QualityReport,
     RetryPageResponse,
+    RewriteState,
     SaveResultPdfResponse,
     SessionState,
     StartSessionRequest,
@@ -25,7 +26,12 @@ from app.schemas.session import (
 from app.services.events import sse_stream
 from app.services.pdf_pipeline import extract_glossary_terms, render_original_pages
 from app.services.session_store import SessionPaths, SessionStore
-from app.workers.tasks import enqueue_page_if_needed, enqueue_translation_jobs, ensure_pages_enqueued
+from app.workers.tasks import (
+    enqueue_page_if_needed,
+    enqueue_rewrite_task,
+    enqueue_translation_jobs,
+    ensure_pages_enqueued,
+)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -64,6 +70,18 @@ def _ensure_original_page(paths: SessionPaths, page_no: int) -> Path:
         render_original_pages(paths.source_pdf, paths.original_dir, pages=[page_no])
     return file_path
 
+
+
+def _rewrite_state(session_id: str, meta: dict) -> RewriteState:
+    raw = meta.get("rewrite") or {}
+    return RewriteState(
+        session_id=session_id,
+        status=raw.get("status", "idle"),
+        stage=raw.get("stage"),
+        done=int(raw.get("done", 0)),
+        total=int(raw.get("total", 0)),
+        error=raw.get("error"),
+    )
 
 
 def _export_result_pdf(session_id: str) -> tuple[Path, int, int]:
@@ -367,6 +385,79 @@ def export_result_pdf(session_id: str) -> FileResponse:
         path=out_path,
         media_type="application/pdf",
         filename=f"{session_id}_translated.pdf",
+    )
+
+
+@router.post("/{session_id}/rewrite", response_model=RewriteState, responses={404: {"model": ErrorResponse}})
+def start_rewrite(
+    session_id: str,
+    request: StartSessionRequest | None = None,
+) -> RewriteState:
+    """Start the in-place rewrite (原位翻译) for the whole document."""
+    _checked_session_id(session_id)
+    settings = get_settings()
+    store = SessionStore()
+    meta = store.get_meta(session_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    current = _rewrite_state(session_id, meta)
+    if current.status == "running":
+        raise HTTPException(status_code=409, detail="Rewrite already running")
+
+    paths = store.paths(session_id)
+    if request is not None:
+        glossary = extract_glossary_terms(paths.source_pdf, max_terms=settings.glossary_max_terms)
+        store.save_providers(
+            session_id,
+            {
+                "primary_provider": request.primary_provider.model_dump(),
+                "backup_provider": request.backup_provider.model_dump() if request.backup_provider else None,
+                "style_profile": request.style_profile,
+                "glossary": glossary,
+            },
+        )
+    elif not store.get_providers(session_id):
+        raise HTTPException(status_code=409, detail="Session has no provider config; pass one in the request")
+
+    page_count = int(meta["page_count"])
+    store.update_meta(
+        session_id,
+        rewrite={"status": "running", "stage": "queued", "done": 0, "total": page_count, "error": None},
+    )
+    enqueue_rewrite_task(session_id)
+    return _rewrite_state(session_id, store.get_meta(session_id) or {})
+
+
+@router.get("/{session_id}/rewrite-state", response_model=RewriteState, responses={404: {"model": ErrorResponse}})
+def get_rewrite_state(session_id: str) -> RewriteState:
+    _checked_session_id(session_id)
+    store = SessionStore()
+    meta = store.get_meta(session_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return _rewrite_state(session_id, meta)
+
+
+@router.get("/{session_id}/rewrite.pdf", responses={404: {"model": ErrorResponse}})
+def export_rewrite_pdf(session_id: str) -> FileResponse:
+    _checked_session_id(session_id)
+    store = SessionStore()
+    meta = store.get_meta(session_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Session not found")
+    state = _rewrite_state(session_id, meta)
+    if state.status == "running":
+        raise HTTPException(status_code=404, detail=f"Rewrite in progress ({state.stage} {state.done}/{state.total})")
+    if state.status != "ready":
+        raise HTTPException(status_code=404, detail=f"Rewrite not ready (status={state.status})")
+    file_path = store.paths(session_id).root / "rewritten.pdf"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Rewritten PDF not found")
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf",
+        filename=f"{session_id}_inplace.pdf",
     )
 
 

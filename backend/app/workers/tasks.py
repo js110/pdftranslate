@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
+from typing import Any
 
 from celery.exceptions import SoftTimeLimitExceeded
 
 from app.core.settings import get_settings
 from app.services.events import publish_event
-from app.services.pdf_pipeline import PageProcessResult, translate_page_to_image
+from app.services.jobtypes import PageProcessResult, _TextBlockJob
+from app.services.orchestrator import _translate_text_jobs
+from app.services.pdf_pipeline import translate_page_to_image
+from app.services.pdf_rewrite import RewriteFonts, RewriteParagraph, has_cjk, is_translatable, rewrite_document
 from app.services.session_store import SessionStore
-from app.services.translator import ProviderRuntime
+from app.services.translator import ProviderRuntime, should_skip_translation
 from app.workers.celery_app import celery_app
 
 
@@ -87,6 +92,145 @@ def translate_page_task(session_id: str, page_no: int) -> dict[str, str | int]:
     latest_state = store.get_page_state(session_id, page_no)
     latest_status = latest_state.status if latest_state else "unknown"
     return {"session_id": session_id, "page_no": page_no, "status": latest_status}
+
+
+def _rewrite_state_patch(store: SessionStore, session_id: str, **patch: Any) -> dict[str, Any]:
+    meta = store.get_meta(session_id) or {}
+    rewrite = dict(meta.get("rewrite") or {})
+    rewrite.update(patch)
+    store.update_meta(session_id, rewrite=rewrite)
+    return rewrite
+
+
+@celery_app.task(
+    name="app.workers.tasks.rewrite_pdf_task",
+    soft_time_limit=get_settings().rewrite_task_soft_time_limit_sec,
+    time_limit=get_settings().rewrite_task_time_limit_sec,
+)
+def rewrite_pdf_task(session_id: str) -> dict[str, str]:
+    """Whole-document in-place rewrite: translate every paragraph, replace the
+    glyphs at their original bboxes, save rewritten.pdf into the session dir."""
+    store = SessionStore()
+    settings = get_settings()
+    meta = store.get_meta(session_id)
+    if not meta:
+        return {"session_id": session_id, "status": "session_not_found"}
+
+    providers = store.get_providers(session_id)
+    if not providers:
+        _rewrite_state_patch(store, session_id, status="failed", error="missing provider runtime")
+        publish_event(session_id, "rewrite_failed", {"reason": "missing_provider_runtime"})
+        return {"session_id": session_id, "status": "failed"}
+
+    primary = ProviderRuntime(**providers["primary_provider"])
+    backup = ProviderRuntime(**providers["backup_provider"]) if providers.get("backup_provider") else None
+    style_profile: str = providers.get("style_profile", "academic_conservative")
+    glossary = providers.get("glossary", [])
+
+    page_count = int(meta["page_count"])
+    paths = store.paths(session_id)
+    out_path = paths.root / "rewritten.pdf"
+    tmp_path = paths.root / "rewritten.tmp.pdf"
+    for stale in (out_path, tmp_path):
+        if stale.exists():
+            stale.unlink()
+
+    def on_progress(stage: str, done: int, total: int) -> None:
+        _rewrite_state_patch(store, session_id, status="running", stage=stage, done=done, total=total, error=None)
+        publish_event(session_id, "rewrite_progress", {"stage": stage, "done": done, "total": total})
+
+    def translate(page_no: int, paras: list[RewriteParagraph]) -> list[str | None]:
+        jobs: list[_TextBlockJob] = []
+        keep: list[int] = []
+        for idx, p in enumerate(paras):
+            if not is_translatable(p) or has_cjk(p.text) or should_skip_translation(p.text):
+                continue
+            jobs.append(
+                _TextBlockJob(
+                    block_index=len(jobs),
+                    text=p.text,
+                    x0=p.rect.x0,
+                    y0=p.rect.y0,
+                    x1=p.rect.x1,
+                    y1=p.rect.y1,
+                    width=p.rect.width,
+                    height=p.rect.height,
+                    base_font_size=p.size,
+                    color=(p.color >> 16 & 255, p.color >> 8 & 255, p.color & 255),
+                )
+            )
+            keep.append(idx)
+        results: list[str | None] = [None] * len(paras)
+        if not jobs:
+            return results
+        page_result = PageProcessResult()
+        translated = _translate_text_jobs(
+            session_id=session_id,
+            jobs=jobs,
+            result=page_result,
+            page_no=page_no,
+            primary_provider=primary,
+            backup_provider=backup,
+            style_profile=style_profile,
+            glossary=glossary,
+            max_retries=settings.max_retries_per_provider,
+        )
+        _merge_report(session_id, page_result)
+        for local_no, orig_idx in enumerate(keep):
+            zh = translated.get(local_no)
+            if zh:
+                results[orig_idx] = zh
+        return results
+
+    _rewrite_state_patch(
+        store, session_id, status="running", stage="extract", done=0, total=page_count, error=None
+    )
+    publish_event(session_id, "rewrite_progress", {"stage": "extract", "done": 0, "total": page_count})
+
+    try:
+        fonts = RewriteFonts(
+            settings.storage_root / "_fonts",
+            regular_override=settings.rewrite_font_regular,
+            bold_override=settings.rewrite_font_bold,
+        )
+        stats = rewrite_document(
+            paths.source_pdf,
+            tmp_path,
+            translate=translate,
+            fonts=fonts,
+            on_progress=on_progress,
+        )
+        os.replace(tmp_path, out_path)
+    except SoftTimeLimitExceeded:
+        reason = f"rewrite timeout: exceeded {settings.rewrite_task_soft_time_limit_sec}s"
+        _rewrite_state_patch(store, session_id, status="failed", error=reason)
+        publish_event(session_id, "rewrite_failed", {"reason": reason})
+        if tmp_path.exists():
+            tmp_path.unlink()
+        return {"session_id": session_id, "status": "failed"}
+    except Exception as exc:  # noqa: BLE001
+        _rewrite_state_patch(store, session_id, status="failed", error=str(exc))
+        publish_event(session_id, "rewrite_failed", {"reason": str(exc)})
+        if tmp_path.exists():
+            tmp_path.unlink()
+        return {"session_id": session_id, "status": "failed"}
+
+    _rewrite_state_patch(
+        store,
+        session_id,
+        status="ready",
+        stage="done",
+        done=page_count,
+        total=page_count,
+        error=None,
+    )
+    publish_event(session_id, "rewrite_ready", stats)
+    return {"session_id": session_id, "status": "ready", **{k: str(v) for k, v in stats.items()}}
+
+
+def enqueue_rewrite_task(session_id: str) -> None:
+    settings = get_settings()
+    rewrite_pdf_task.apply_async(args=[session_id], queue=settings.normal_priority_queue)
 
 
 def enqueue_translation_jobs(session_id: str, page_count: int) -> list[int]:

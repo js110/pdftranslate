@@ -100,10 +100,25 @@ class EventMessage(BaseModel):
         "session_ready",
         "session_failed",
         "progress",
+        "rewrite_progress",
+        "rewrite_ready",
+        "rewrite_failed",
     ]
     session_id: str
     payload: dict[str, Any] = Field(default_factory=dict)
     ts: datetime
+
+
+RewriteStatus = Literal["idle", "running", "ready", "failed"]
+
+
+class RewriteState(BaseModel):
+    session_id: str
+    status: RewriteStatus = "idle"
+    stage: str | None = None
+    done: int = 0
+    total: int = 0
+    error: str | None = None
 
 
 class RetryPageResponse(BaseModel):

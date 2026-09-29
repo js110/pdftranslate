@@ -57,6 +57,15 @@ export interface SessionState {
   expires_at: string
 }
 
+export interface RewriteState {
+  session_id: string
+  status: 'idle' | 'running' | 'ready' | 'failed'
+  stage: string | null
+  done: number
+  total: number
+  error: string | null
+}
+
 export interface QualityReport {
   layout_overflow: Array<{ page_no: number; bbox: number[]; reason: string }>
   fallback_events: Array<{ page_no: number; from_provider: string; to_provider: string; reason: string }>
@@ -72,6 +81,9 @@ export interface EventEnvelope {
     | 'session_ready'
     | 'session_failed'
     | 'progress'
+    | 'rewrite_progress'
+    | 'rewrite_ready'
+    | 'rewrite_failed'
   session_id: string
   payload: Record<string, unknown>
   ts: string

@@ -1,5 +1,13 @@
-import type { SessionState } from '../types'
+import type { RewriteState, SessionState } from '../types'
 import { toCnStatus } from '../constants'
+
+const REWRITE_STAGE_LABEL: Record<string, string> = {
+  queued: '排队中',
+  extract: '提取文本',
+  translate: '翻译',
+  write: '排版写入',
+  done: '完成',
+}
 
 type Props = {
   state: SessionState | null
@@ -8,9 +16,14 @@ type Props = {
   startBlocked: boolean
   savingPdf: boolean
   exportingPdf: boolean
+  rewrite: RewriteState | null
+  rewriteStarting: boolean
+  exportingRewrite: boolean
   onStart: () => void
   onSaveResultPdf: () => void
   onExportResultPdf: () => void
+  onRewrite: () => void
+  onExportRewritePdf: () => void
   onDestroySession: () => void
 }
 
@@ -22,11 +35,19 @@ export function SessionActions(props: Props) {
     startBlocked,
     savingPdf,
     exportingPdf,
+    rewrite,
+    rewriteStarting,
+    exportingRewrite,
     onStart,
     onSaveResultPdf,
     onExportResultPdf,
+    onRewrite,
+    onExportRewritePdf,
     onDestroySession,
   } = props
+
+  const rewriteRunning = rewrite?.status === 'running'
+  const rewriteBusy = rewriteStarting || rewriteRunning
 
   return (
     <>
@@ -52,6 +73,30 @@ export function SessionActions(props: Props) {
             {' \u5f85\u5904\u7406'}: {progress.pending} |
             {' \u5931\u8d25'}: {progress.failed}
           </span>
+        )}
+      </div>
+
+      <div className="action-row">
+        <button onClick={onRewrite} disabled={rewriteBusy}>
+          {rewriteStarting
+            ? '启动中...'
+            : rewriteRunning
+              ? '原位翻译进行中...'
+              : '原位翻译（保留原 PDF 样式）'}
+        </button>
+        {rewriteRunning && (
+          <span className="rewrite-progress">
+            {REWRITE_STAGE_LABEL[rewrite?.stage ?? ''] ?? rewrite?.stage ?? ''} {rewrite?.done ?? 0}/
+            {rewrite?.total ?? 0}
+          </span>
+        )}
+        {rewrite?.status === 'ready' && (
+          <button onClick={onExportRewritePdf} disabled={exportingRewrite}>
+            {exportingRewrite ? '下载中...' : '下载原位翻译 PDF'}
+          </button>
+        )}
+        {rewrite?.status === 'failed' && (
+          <span className="rewrite-error">原位翻译失败: {rewrite.error ?? '未知错误'}</span>
         )}
       </div>
 

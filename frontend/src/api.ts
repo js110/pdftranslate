@@ -1,6 +1,7 @@
 import type {
   EnsurePageResponse,
   EventEnvelope,
+  RewriteState,
   SaveResultPdfResponse,
   SessionCreateResponse,
   SessionState,
@@ -98,6 +99,40 @@ export async function exportResultPdf(sessionId: string): Promise<void> {
 
 export async function deleteSession(sessionId: string): Promise<void> {
   await request(`/sessions/${sessionId}`, { method: 'DELETE' })
+}
+
+export async function startRewrite(sessionId: string, payload: StartSessionRequest): Promise<RewriteState> {
+  return request<RewriteState>(`/sessions/${sessionId}/rewrite`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function getRewriteState(sessionId: string): Promise<RewriteState> {
+  return request<RewriteState>(`/sessions/${sessionId}/rewrite-state`)
+}
+
+export async function exportRewritePdf(sessionId: string): Promise<void> {
+  const resp = await fetch(`${API_BASE}/sessions/${sessionId}/rewrite.pdf`)
+  if (!resp.ok) {
+    let message = `HTTP ${resp.status}`
+    try {
+      const body = await resp.json()
+      message = toErrorMessage(body)
+    } catch {
+      // no-op
+    }
+    throw new Error(message)
+  }
+
+  const blob = await resp.blob()
+  const downloadUrl = window.URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = downloadUrl
+  anchor.download = `${sessionId}_inplace.pdf`
+  anchor.click()
+  window.URL.revokeObjectURL(downloadUrl)
 }
 
 export function originalPageUrl(sessionId: string, pageNo: number): string {

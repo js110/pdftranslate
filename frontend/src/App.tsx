@@ -4,9 +4,12 @@ import {
   createSession,
   deleteSession,
   exportResultPdf,
+  exportRewritePdf,
   getState,
+  getRewriteState,
   retryPage,
   saveResultPdf,
+  startRewrite,
   startSession,
   subscribeEvents,
 } from './api'
@@ -26,7 +29,13 @@ import {
 } from './constants'
 import { inferPresetKey, inferTimeout } from './providers'
 import type { ProviderPresetKey } from './providers'
-import type { EventEnvelope, SessionCreateResponse, SessionState, StartSessionRequest } from './types'
+import type {
+  EventEnvelope,
+  RewriteState,
+  SessionCreateResponse,
+  SessionState,
+  StartSessionRequest,
+} from './types'
 
 function readLocalStorage(key: string): string {
   if (typeof window === 'undefined') return ''
@@ -42,6 +51,9 @@ function App() {
   const [starting, setStarting] = useState(false)
   const [savingPdf, setSavingPdf] = useState(false)
   const [exportingPdf, setExportingPdf] = useState(false)
+  const [rewrite, setRewrite] = useState<RewriteState | null>(null)
+  const [rewriteStarting, setRewriteStarting] = useState(false)
+  const [exportingRewrite, setExportingRewrite] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [cacheVersion, setCacheVersion] = useState<Record<number, number>>({})
@@ -84,6 +96,14 @@ function App() {
     setCacheVersion((prev) => mergeCacheVersionFromState(prev, nextState))
   }
 
+  const refreshRewrite = async (sessionId: string) => {
+    try {
+      setRewrite(await getRewriteState(sessionId))
+    } catch {
+      // session gone — ignore, state sync will surface it
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
     const restoreSession = async () => {
@@ -108,6 +128,7 @@ function App() {
         })
         setState(nextState)
         setCacheVersion((prev) => mergeCacheVersionFromState(prev, nextState))
+        void refreshRewrite(savedSessionId)
       } catch (err) {
         if (!cancelled && isMissingSessionError(err)) {
           window.localStorage.removeItem(LAST_SESSION_STORAGE)
@@ -142,6 +163,7 @@ function App() {
         window.localStorage.setItem(LAST_SESSION_STORAGE, created.session_id)
       }
       await refreshState(created.session_id)
+      await refreshRewrite(created.session_id)
     } catch (err) {
       setError(err instanceof Error ? err.message : '\u4e0a\u4f20\u5931\u8d25')
     } finally {
@@ -208,6 +230,23 @@ function App() {
         const pageNo = Number(event.payload.page_no)
         setCacheVersion((prev) => ({ ...prev, [pageNo]: (prev[pageNo] ?? 0) + 1 }))
       }
+      if (event.event === 'rewrite_progress') {
+        setRewrite((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: 'running',
+                stage: String(event.payload.stage ?? prev.stage ?? ''),
+                done: Number(event.payload.done ?? 0),
+                total: Number(event.payload.total ?? prev.total ?? 0),
+                error: null,
+              }
+            : prev,
+        )
+      }
+      if (event.event === 'rewrite_ready' || event.event === 'rewrite_failed') {
+        void refreshRewrite(session.session_id)
+      }
       void refreshState(session.session_id)
     })
 
@@ -223,6 +262,14 @@ function App() {
     }, 3000)
     return () => window.clearInterval(timer)
   }, [session?.session_id, state?.overall_status])
+
+  useEffect(() => {
+    if (!session || rewrite?.status !== 'running') return
+    const timer = window.setInterval(() => {
+      void refreshRewrite(session.session_id)
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [session?.session_id, rewrite?.status])
 
   useEffect(() => {
     if (!state || !error) return
@@ -251,6 +298,7 @@ function App() {
     }
     setSession(null)
     setState(null)
+    setRewrite(null)
     setCacheVersion({})
     setError(null)
     setInfo(null)
@@ -283,6 +331,51 @@ function App() {
       setError(err instanceof Error ? err.message : '\u5bfc\u51fa PDF \u5931\u8d25')
     } finally {
       setExportingPdf(false)
+    }
+  }
+
+  const onRewrite = async () => {
+    if (!session) return
+    if (rewrite?.status === 'running') return
+    if (!primaryKey.trim()) {
+      setError('主模型 API Key 不能为空。')
+      return
+    }
+    const payload: StartSessionRequest = {
+      primary_provider: {
+        id: primaryId,
+        model: primaryModel,
+        base_url: primaryBaseUrl.trim() || undefined,
+        api_key: primaryKey,
+        timeout_sec: inferTimeout(primaryPreset),
+      },
+      style_profile: 'academic_conservative',
+    }
+    setRewriteStarting(true)
+    setError(null)
+    setInfo(null)
+    try {
+      setRewrite(await startRewrite(session.session_id, payload))
+      setInfo('原位翻译已启动：将保留原 PDF 样式输出可搜索的中文 PDF。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '启动原位翻译失败')
+    } finally {
+      setRewriteStarting(false)
+    }
+  }
+
+  const onExportRewritePdf = async () => {
+    if (!session) return
+    setExportingRewrite(true)
+    setError(null)
+    setInfo(null)
+    try {
+      await exportRewritePdf(session.session_id)
+      setInfo('原位翻译 PDF 下载已开始')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '下载原位翻译 PDF 失败')
+    } finally {
+      setExportingRewrite(false)
     }
   }
 
@@ -359,9 +452,14 @@ function App() {
             startBlocked={startBlocked}
             savingPdf={savingPdf}
             exportingPdf={exportingPdf}
+            rewrite={rewrite}
+            rewriteStarting={rewriteStarting}
+            exportingRewrite={exportingRewrite}
             onStart={onStart}
             onSaveResultPdf={onSaveResultPdf}
             onExportResultPdf={onExportResultPdf}
+            onRewrite={onRewrite}
+            onExportRewritePdf={onExportRewritePdf}
             onDestroySession={destroySession}
           />
         </section>

@@ -658,6 +658,12 @@ def _has_extreme_length_mismatch(source_text: str, translated_text: str) -> bool
     src_item_count = _count_numbered_item_markers(source_text)
     tgt_item_count = _count_numbered_item_markers(translated_text)
 
+    # Long prose collapsing into a token/number (e.g. a 160-char sentence
+    # "translated" as "1") means poisoned cache or a misaligned batch response.
+    # Legit EN->ZH output stays well above 18% of the source length.
+    if src_en >= 5 and src_len >= 60 and tgt_len < max(8, int(src_len * 0.18)):
+        return True
+
     # Short English source blocks should not expand into a long multi-sentence Chinese passage.
     if src_cjk <= 2 and 4 <= src_en <= 28 and src_len <= 200:
         if tgt_cjk >= max(70, src_en * 5) and tgt_len >= max(170, int(src_len * 2.4)):
