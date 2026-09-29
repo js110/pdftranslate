@@ -4,8 +4,6 @@ These exercise the fallback ladder without any network/LLM access.
 """
 from __future__ import annotations
 
-import pytest
-
 import app.services.orchestrator as orchestrator
 from app.services.jobtypes import PageProcessResult, _TextBlockJob
 from app.services.orchestrator import _translate_text_jobs

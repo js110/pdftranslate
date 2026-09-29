@@ -1,0 +1,7 @@
+# Minimal ruff config: correctness-focused rules that pass today.
+# Loosen/tighten intentionally; keep CI green.
+line-length = 120
+target-version = "py311"
+
+[lint]
+select = ["E4", "E7", "E9", "F"]

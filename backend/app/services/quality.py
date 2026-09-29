@@ -291,7 +291,6 @@ def _fallback_translate_table_narrative(source_text: str) -> str | None:
     out_sentences: list[str] = []
     for idx, sentence in enumerate(sentences):
         s = re.sub(r"\s+", " ", sentence).strip()
-        lower = s.lower()
 
         if idx == 0:
             match_show = re.match(

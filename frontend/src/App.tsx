@@ -1,129 +1,36 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   createSession,
   deleteSession,
-  ensurePage,
   exportResultPdf,
   getState,
-  originalPageUrl,
   retryPage,
   saveResultPdf,
   startSession,
   subscribeEvents,
-  translatedPageUrl,
 } from './api'
+import { ProviderControls } from './components/ProviderControls'
+import { SessionActions } from './components/SessionActions'
+import { UploadPanel } from './components/UploadPanel'
+import { ViewerGrid } from './components/ViewerGrid'
+import {
+  DEFAULT_PRIMARY_API_KEY,
+  DEFAULT_PRIMARY_BASE_URL,
+  DEFAULT_PRIMARY_ID,
+  DEFAULT_PRIMARY_MODEL,
+  LAST_SESSION_STORAGE,
+  PRIMARY_KEY_STORAGE,
+  isMissingSessionError,
+  mergeCacheVersionFromState,
+} from './constants'
+import { inferPresetKey, inferTimeout } from './providers'
+import type { ProviderPresetKey } from './providers'
 import type { EventEnvelope, SessionCreateResponse, SessionState, StartSessionRequest } from './types'
-
-const PRIMARY_KEY_STORAGE = 'pdftranslate_primary_api_key'
-const LAST_SESSION_STORAGE = 'pdftranslate_last_session_id'
-const DEFAULT_PRIMARY_ID = (import.meta.env.VITE_DEFAULT_PRIMARY_ID as string | undefined) ?? 'deepseek-main'
-const DEFAULT_PRIMARY_MODEL = (import.meta.env.VITE_DEFAULT_PRIMARY_MODEL as string | undefined) ?? 'deepseek-chat'
-const DEFAULT_PRIMARY_BASE_URL =
-  (import.meta.env.VITE_DEFAULT_PRIMARY_BASE_URL as string | undefined) ?? 'https://api.deepseek.com/v1'
-const DEFAULT_PRIMARY_API_KEY = (import.meta.env.VITE_DEFAULT_PRIMARY_API_KEY as string | undefined) ?? ''
-const SHOW_RETRANSLATE_BUTTON =
-  import.meta.env.DEV || ((import.meta.env.VITE_ENABLE_RETRANSLATE_BUTTON as string | undefined) ?? '') === 'true'
-
-type ProviderPresetKey = 'deepseek' | 'tencent' | 'aliyun' | 'xiaomi' | 'custom'
-
-type ProviderPreset = {
-  key: ProviderPresetKey
-  label: string
-  id: string
-  model: string
-  baseUrl: string
-}
-
-const PROVIDER_PRESETS: ProviderPreset[] = [
-  {
-    key: 'deepseek',
-    label: 'DeepSeek',
-    id: 'deepseek-main',
-    model: 'deepseek-chat',
-    baseUrl: 'https://api.deepseek.com/v1',
-  },
-  {
-    key: 'tencent',
-    label: '腾讯混元',
-    id: 'hunyuan-main',
-    model: 'hunyuan-turbos-latest',
-    baseUrl: 'https://api.hunyuan.cloud.tencent.com/v1',
-  },
-  {
-    key: 'aliyun',
-    label: '阿里通义千问',
-    id: 'qwen-main',
-    model: 'qwen-plus',
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  },
-  {
-    key: 'xiaomi',
-    label: '小米 MiMo',
-    id: 'mimo-main',
-    model: 'mimo-v2.5-pro',
-    baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1',
-  },
-  {
-    key: 'custom',
-    label: '自定义（OpenAI 兼容）',
-    id: 'custom-main',
-    model: '',
-    baseUrl: '',
-  },
-]
-
-function inferPresetKey(baseUrl: string, model: string): ProviderPresetKey {
-  const lowerUrl = baseUrl.toLowerCase()
-  const lowerModel = model.toLowerCase()
-  if (lowerUrl.includes('api.deepseek.com') || lowerModel.includes('deepseek')) return 'deepseek'
-  if (lowerUrl.includes('hunyuan.cloud.tencent.com') || lowerModel.includes('hunyuan')) return 'tencent'
-  if (lowerUrl.includes('dashscope.aliyuncs.com') || lowerModel.includes('qwen')) return 'aliyun'
-  if (lowerUrl.includes('xiaomimimo.com') || lowerModel.includes('mimo')) return 'xiaomi'
-  return 'custom'
-}
-
-function getPreset(presetKey: ProviderPresetKey): ProviderPreset | undefined {
-  return PROVIDER_PRESETS.find((item) => item.key === presetKey)
-}
 
 function readLocalStorage(key: string): string {
   if (typeof window === 'undefined') return ''
   return window.localStorage.getItem(key) ?? ''
-}
-
-function isMissingSessionError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false
-  const message = err.message.toLowerCase()
-  return message.includes('session not found') || message.includes('session file missing') || message.includes('http 404')
-}
-
-function toPageCacheVersion(updatedAt: string): number {
-  const parsed = Date.parse(updatedAt)
-  if (!Number.isFinite(parsed) || parsed <= 0) return 0
-  return parsed
-}
-
-function mergeCacheVersionFromState(prev: Record<number, number>, nextState: SessionState): Record<number, number> {
-  const next = { ...prev }
-  for (const page of nextState.page_states) {
-    const version = toPageCacheVersion(page.updated_at)
-    if (version <= 0) continue
-    next[page.page_no] = Math.max(next[page.page_no] ?? 0, version)
-  }
-  return next
-}
-
-function toCnStatus(status: SessionState['overall_status']): string {
-  const map: Record<SessionState['overall_status'], string> = {
-    created: '\u5df2\u521b\u5efa',
-    running: '\u8fdb\u884c\u4e2d',
-    ready: '\u5df2\u5b8c\u6210',
-    failed: '\u5931\u8d25',
-    expired: '\u5df2\u8fc7\u671f',
-    deleted: '\u5df2\u5220\u9664',
-  }
-  return map[status]
 }
 
 function App() {
@@ -139,7 +46,6 @@ function App() {
   const [info, setInfo] = useState<string | null>(null)
   const [cacheVersion, setCacheVersion] = useState<Record<number, number>>({})
   const [controlsOpen, setControlsOpen] = useState(true)
-  const [dragging, setDragging] = useState(false)
 
   const [primaryId, setPrimaryId] = useState(DEFAULT_PRIMARY_ID)
   const [primaryModel, setPrimaryModel] = useState(DEFAULT_PRIMARY_MODEL)
@@ -151,11 +57,6 @@ function App() {
   const [primaryPreset, setPrimaryPreset] = useState<ProviderPresetKey>(() =>
     inferPresetKey(DEFAULT_PRIMARY_BASE_URL, DEFAULT_PRIMARY_MODEL),
   )
-
-  const leftRef = useRef<HTMLDivElement | null>(null)
-  const rightRef = useRef<HTMLDivElement | null>(null)
-  const syncingRef = useRef(false)
-  const ensuredPagesRef = useRef<Set<number>>(new Set())
 
   const sortedPages = useMemo(() => {
     if (!state) return []
@@ -176,19 +77,6 @@ function App() {
     }
     return { total, ready, processing, pending, failed }
   }, [sortedPages])
-
-  const applyProviderPreset = (
-    presetKey: ProviderPresetKey,
-    setId: (value: string) => void,
-    setModel: (value: string) => void,
-    setBaseUrl: (value: string) => void,
-  ) => {
-    const preset = getPreset(presetKey)
-    if (!preset || preset.key === 'custom') return
-    setId(preset.id)
-    setModel(preset.model)
-    setBaseUrl(preset.baseUrl)
-  }
 
   const refreshState = async (sessionId: string) => {
     const nextState = await getState(sessionId)
@@ -272,8 +160,6 @@ function App() {
       return
     }
 
-    const inferTimeout = (presetKey: ProviderPresetKey) => (presetKey === 'xiaomi' ? 120 : 60)
-
     const payload: StartSessionRequest = {
       primary_provider: {
         id: primaryId,
@@ -284,8 +170,6 @@ function App() {
       },
       style_profile: 'academic_conservative',
     }
-
-
 
     setStarting(true)
     setError(null)
@@ -310,8 +194,6 @@ function App() {
     window.localStorage.setItem(PRIMARY_KEY_STORAGE, primaryKey)
   }, [primaryKey])
 
-
-
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (!session?.session_id) return
@@ -333,37 +215,6 @@ function App() {
       source.close()
     }
   }, [session?.session_id])
-
-  useEffect(() => {
-    ensuredPagesRef.current = new Set()
-  }, [session?.session_id])
-
-  useEffect(() => {
-    if (!session || !state || !leftRef.current) return
-    if (!['running', 'ready'].includes(state.overall_status)) return
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue
-          const pageNo = Number((entry.target as HTMLElement).dataset.pageNo)
-          if (!Number.isFinite(pageNo)) continue
-          if (ensuredPagesRef.current.has(pageNo)) continue
-          ensuredPagesRef.current.add(pageNo)
-          void ensurePage(session.session_id, pageNo, 1).catch(() => undefined)
-        }
-      },
-      {
-        root: leftRef.current,
-        threshold: 0.25,
-      },
-    )
-
-    const targets = leftRef.current.querySelectorAll<HTMLElement>('[data-page-no]')
-    targets.forEach((el) => observer.observe(el))
-
-    return () => observer.disconnect()
-  }, [session?.session_id, state?.overall_status, sortedPages.length])
 
   useEffect(() => {
     if (!session || !state || !['running', 'created'].includes(state.overall_status)) return
@@ -403,7 +254,6 @@ function App() {
     setCacheVersion({})
     setError(null)
     setInfo(null)
-    ensuredPagesRef.current = new Set()
   }
 
   const onSaveResultPdf = async () => {
@@ -448,21 +298,6 @@ function App() {
     }
   }
 
-  const syncScroll = (from: HTMLDivElement, to: HTMLDivElement) => {
-    if (syncingRef.current) return
-
-    const fromMax = from.scrollHeight - from.clientHeight
-    const toMax = to.scrollHeight - to.clientHeight
-    if (fromMax <= 0 || toMax <= 0) return
-
-    syncingRef.current = true
-    const ratio = from.scrollTop / fromMax
-    to.scrollTop = ratio * toMax
-    window.requestAnimationFrame(() => {
-      syncingRef.current = false
-    })
-  }
-
   const startBlocked = starting || !session || !!(state && ['running', 'ready'].includes(state.overall_status))
   const startLabel = starting
     ? '\u542f\u52a8\u4e2d...'
@@ -488,41 +323,7 @@ function App() {
       )}
 
       {!session && !restoringSession && (
-        <section className="upload-stage">
-          <div className="upload-panel panel">
-            <h2>{'\u4e0a\u4f20\u79d1\u7814 PDF'}</h2>
-            <p className="upload-desc">{'\u5355\u7bc7\u8bba\u6587\u5728\u7ebf\u53cc\u680f\u7ffb\u8bd1\uff0c\u652f\u6301\u524d 3 \u9875\u4f18\u5148\u53ef\u8bfb'}</p>
-            <form onSubmit={onUpload} className="upload-form">
-              <label
-                className={`file-picker${dragging ? ' dragging' : ''}`}
-                onDragOver={(e) => {
-                  e.preventDefault()
-                  setDragging(true)
-                }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  setDragging(false)
-                  const dropped = e.dataTransfer.files[0]
-                  if (dropped && dropped.type === 'application/pdf') {
-                    setFile(dropped)
-                  }
-                }}
-              >
-                <input
-                  type="file"
-                  accept="application/pdf"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                />
-                <span>{file ? file.name : '\u70b9\u51fb\u9009\u62e9 PDF \u6587\u4ef6'}</span>
-              </label>
-              <button type="submit" disabled={loading || !file}>
-                {loading ? '\u4e0a\u4f20\u4e2d...' : '\u4e0a\u4f20 PDF \u5e76\u521b\u5efa\u4f1a\u8bdd'}
-              </button>
-            </form>
-            <p className="upload-hint">{'\u5efa\u8bae 30MB \u4ee5\u5185\uff0c\u4f1a\u8bdd\u5173\u95ed\u540e\u81ea\u52a8\u6e05\u7406'}</p>
-          </div>
-        </section>
+        <UploadPanel file={file} setFile={setFile} loading={loading} onUpload={onUpload} />
       )}
 
       {session && (
@@ -536,80 +337,33 @@ function App() {
               {controlsOpen ? '收起设置 ▲' : '展开设置 ▼'}
             </button>
           </div>
-          {controlsOpen && <div className="controls-row">
-            <label>
-              {'主模型提供商'}
-              <select
-                value={primaryPreset}
-                onChange={(e) => {
-                  const presetKey = e.target.value as ProviderPresetKey
-                  setPrimaryPreset(presetKey)
-                  applyProviderPreset(presetKey, setPrimaryId, setPrimaryModel, setPrimaryBaseUrl)
-                }}
-              >
-                {PROVIDER_PRESETS.map((preset) => (
-                  <option key={`primary-${preset.key}`} value={preset.key}>
-                    {preset.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {'\u4e3b\u6a21\u578b ID'}
-              <input value={primaryId} onChange={(e) => setPrimaryId(e.target.value)} />
-            </label>
-            <label>
-              {'\u4e3b\u6a21\u578b\u540d\u79f0'}
-              <input value={primaryModel} onChange={(e) => setPrimaryModel(e.target.value)} />
-            </label>
-            <label>
-              {'\u4e3b\u6a21\u578b Base URL'}
-              <input value={primaryBaseUrl} onChange={(e) => setPrimaryBaseUrl(e.target.value)} />
-            </label>
-            <label>
-              {'\u4e3b\u6a21\u578b API Key'}
-              <input type="password" value={primaryKey} onChange={(e) => setPrimaryKey(e.target.value)} />
-            </label>
-          </div>}
-
-
-
-          <div className="action-row">
-            <button onClick={onStart} disabled={startBlocked}>
-              {startLabel}
-            </button>
-            <button onClick={onSaveResultPdf} disabled={savingPdf}>
-              {savingPdf ? '保存中...' : '保存当前结果 PDF'}
-            </button>
-            <button onClick={onExportResultPdf} disabled={exportingPdf}>
-              {exportingPdf ? '\u5bfc\u51fa\u4e2d...' : '\u5bfc\u51fa\u7ffb\u8bd1PDF'}
-            </button>
-            <button className="danger" onClick={destroySession}>
-              {'\u7ed3\u675f\u4f1a\u8bdd'}
-            </button>
-            {state && (
-              <span className="state-tag">
-                {'\u72b6\u6001'}: {toCnStatus(state.overall_status)} |
-                {' \u9996\u4e09\u9875\u53ef\u8bfb'}: {state.first_readable_ready ? '\u662f' : '\u5426'} |
-                {' \u5df2\u5b8c\u6210'}: {progress.ready}/{progress.total} |
-                {' \u5904\u7406\u4e2d'}: {progress.processing} |
-                {' \u5f85\u5904\u7406'}: {progress.pending} |
-                {' \u5931\u8d25'}: {progress.failed}
-              </span>
-            )}
-          </div>
-
-          {state?.overall_status === 'running' && progress.total > 0 && (
-            <div className="progress-bar-wrap">
-              <div
-                className="progress-bar"
-                style={{ width: `${Math.round((progress.ready / progress.total) * 100)}%` }}
-              />
-              <span className="progress-label">
-                {Math.round((progress.ready / progress.total) * 100)}% ({progress.ready}/{progress.total})
-              </span>
-            </div>
+          {controlsOpen && (
+            <ProviderControls
+              primaryPreset={primaryPreset}
+              setPrimaryPreset={setPrimaryPreset}
+              primaryId={primaryId}
+              setPrimaryId={setPrimaryId}
+              primaryModel={primaryModel}
+              setPrimaryModel={setPrimaryModel}
+              primaryBaseUrl={primaryBaseUrl}
+              setPrimaryBaseUrl={setPrimaryBaseUrl}
+              primaryKey={primaryKey}
+              setPrimaryKey={setPrimaryKey}
+            />
           )}
+
+          <SessionActions
+            state={state}
+            progress={progress}
+            startLabel={startLabel}
+            startBlocked={startBlocked}
+            savingPdf={savingPdf}
+            exportingPdf={exportingPdf}
+            onStart={onStart}
+            onSaveResultPdf={onSaveResultPdf}
+            onExportResultPdf={onExportResultPdf}
+            onDestroySession={destroySession}
+          />
         </section>
       )}
 
@@ -617,63 +371,7 @@ function App() {
       {info && <section className="panel info-panel">{info}</section>}
 
       {session && state && (
-        <main className="viewer-grid">
-          <section
-            className="viewer-col"
-            ref={leftRef}
-            onScroll={() => {
-              if (leftRef.current && rightRef.current) syncScroll(leftRef.current, rightRef.current)
-            }}
-          >
-            <h2>{'\u539f\u6587'}</h2>
-            <div className="pages-stack">
-              {sortedPages.map((page) => (
-                <article key={`original-${page.page_no}`} className="page-card" data-page-no={page.page_no}>
-                  <div className="page-meta">{'\u7b2c'} {page.page_no} {'\u9875'}</div>
-                  <img loading="lazy" src={originalPageUrl(session.session_id, page.page_no)} alt={`original-${page.page_no}`} />
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <section
-            className="viewer-col"
-            ref={rightRef}
-            onScroll={() => {
-              if (leftRef.current && rightRef.current) syncScroll(rightRef.current, leftRef.current)
-            }}
-          >
-            <h2>{'\u8bd1\u6587'}</h2>
-            <div className="pages-stack">
-              {sortedPages.map((page) => (
-                <article key={`translated-${page.page_no}`} className="page-card">
-                  <div className="page-meta">{'\u7b2c'} {page.page_no} {'\u9875'}</div>
-                  {page.status === 'ready' && (
-                    <>
-                      <img
-                        loading="lazy"
-                        src={translatedPageUrl(session.session_id, page.page_no, cacheVersion[page.page_no] ?? 0)}
-                        alt={`translated-${page.page_no}`}
-                      />
-                      {SHOW_RETRANSLATE_BUTTON && <button onClick={() => onRetryPage(page.page_no)}>{'重译该页'}</button>}
-                    </>
-                  )}
-                  {page.status === 'pending' && <div className="placeholder">{'\u7b49\u5f85\u8fdb\u5165\u7ffb\u8bd1\u961f\u5217...'}</div>}
-                  {page.status === 'processing' && <div className="placeholder">{'\u540e\u53f0\u7ffb\u8bd1\u4e2d...'}</div>}
-                  {page.status === 'failed' && (
-                    <div className="placeholder failed">
-                      <div>{'\u7ffb\u8bd1\u5931\u8d25'}: {page.error ?? '\u672a\u77e5\u9519\u8bef'}</div>
-                      <button onClick={() => onRetryPage(page.page_no)}>
-                        {'\u91cd\u8bd5\u8be5\u9875'}
-                      </button>
-                    </div>
-                  )}
-                </article>
-              ))}
-            </div>
-          </section>
-
-        </main>
+        <ViewerGrid session={session} state={state} cacheVersion={cacheVersion} onRetryPage={onRetryPage} />
       )}
     </div>
   )
