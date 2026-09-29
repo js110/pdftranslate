@@ -277,6 +277,30 @@ def get_translated_page(session_id: str, page_no: int):
     )
 
 
+@router.get("/{session_id}/pages/{page_no}/blocks.json")
+def get_page_blocks(session_id: str, page_no: int):
+    """Per-block translation records for the HTML reflow reader."""
+    _checked_session_id(session_id)
+    store = SessionStore()
+    meta = store.get_meta(session_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if page_no < 1 or page_no > int(meta["page_count"]):
+        raise HTTPException(status_code=404, detail="Page not found")
+    file_path = store.paths(session_id).translated_dir / f"{page_no}.blocks.json"
+    if not file_path.exists():
+        return JSONResponse(status_code=202, content={"status": "pending", "page_no": page_no})
+    return FileResponse(
+        file_path,
+        media_type="application/json",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
 @router.post(
     "/{session_id}/pages/{page_no}/ensure",
     response_model=EnsurePageResponse,

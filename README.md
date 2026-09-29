@@ -18,7 +18,6 @@
 - 左原文 / 右译文双栏阅读（强同步滚动）
 - 前 3 页优先翻译，其余页面后台继续处理
 - BYOK 模型配置（OpenAI + OpenAI 兼容接口）
-- 图片 OCR（本地 PaddleOCR + 百度云端 API）
 - 小米 MiMo 推理模型支持
 - SSE 实时推送页面翻译进度
 - 会话级数据隔离与自动清理
@@ -132,50 +131,6 @@ docker compose up --build
 
 > **注意**：MiMo 为推理模型，会先进行内部推理（reasoning），再输出翻译结果，因此响应时间比普通模型更长，但翻译质量通常更高。
 
-## 图片 OCR 配置（可选）
-
-如果 PDF 中有图表、架构图等包含文字的图片，可以启用 OCR 来识别并翻译图中文字。
-
-### 启用方式
-
-#### 本地 PaddleOCR（默认镜像未包含，需单独安装）
-
-本地 PaddleOCR 依赖（paddlepaddle/paddleocr，体积约数 GB）默认**不打包**进 Docker 镜像。需要启用时，在项目根目录执行：
-
-```bash
-INSTALL_OCR=true docker compose build api worker
-docker compose up -d
-```
-
-并在 `docker-compose.yml` 中设置 `ENABLE_IMAGE_OCR: "true"`。
-
-#### 百度云端 PaddleOCR（默认镜像即可用）
-
-云端 OCR 走 HTTP API，**无需安装本地 paddle 依赖**，直接配置 Token 即可：
-
-在项目根目录创建 `.env` 文件（已被 `.gitignore` 忽略，不会提交）：
-
-```env
-REMOTE_OCR_TOKEN=你的百度PaddleOCR云API Token
-```
-
-然后修改 `docker-compose.yml` 中的环境变量：
-
-```yaml
-ENABLE_IMAGE_OCR: "true"           # 本地 PaddleOCR（需 INSTALL_OCR=true 重新构建镜像）
-ENABLE_REMOTE_IMAGE_OCR: "true"    # 百度云端 PaddleOCR API（默认镜像即可）
-```
-
-重启生效：`docker compose up -d`
-
-> **安全提示**：不要把 Token 直接写在 `docker-compose.yml` 里提交到 Git。使用 `.env` 文件或环境变量传入。
-
-### 获取 PaddleOCR 云 API Token
-
-- 平台地址：`https://aistudio.baidu.com/`
-- API 文档：`https://paddleocr.aistudio-app.com/`
-- 在控制台创建应用后获取 Token
-
 ## 开发模式热更新
 
 使用 dev 覆盖配置启动（API、Worker、前端开发服务器热更新）：
@@ -206,4 +161,3 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build red
 
 - 本项目按设计不提供"直接下载译文文件"的在线出口
 - 会话数据是临时数据，过期或手动删除后会清理
-- OCR 效果受源 PDF 图片清晰度与运行环境影响

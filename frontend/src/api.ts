@@ -1,6 +1,7 @@
 import type {
   EnsurePageResponse,
   EventEnvelope,
+  PageBlocks,
   SaveResultPdfResponse,
   SessionCreateResponse,
   SessionState,
@@ -106,6 +107,22 @@ export function originalPageUrl(sessionId: string, pageNo: number): string {
 
 export function translatedPageUrl(sessionId: string, pageNo: number, version = 0): string {
   return `${API_BASE}/sessions/${sessionId}/pages/${pageNo}/translated.png?v=${version}`
+}
+
+export async function fetchPageBlocks(
+  sessionId: string,
+  pageNo: number,
+  version = 0,
+): Promise<PageBlocks | null> {
+  const resp = await fetch(`${API_BASE}/sessions/${sessionId}/pages/${pageNo}/blocks.json?v=${version}`)
+  if (!resp.ok) return null
+  try {
+    const data = (await resp.json()) as PageBlocks | { status: string }
+    if (!data || !('blocks' in data) || !Array.isArray(data.blocks)) return null
+    return data
+  } catch {
+    return null
+  }
 }
 
 export function subscribeEvents(sessionId: string, onEvent: (event: EventEnvelope) => void): EventSource {

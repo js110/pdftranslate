@@ -67,12 +67,6 @@ class LayoutOverflowItem(BaseModel):
     reason: str
 
 
-class ImageOcrFailureItem(BaseModel):
-    page_no: int
-    image_index: int
-    reason: str
-
-
 class FallbackEventItem(BaseModel):
     page_no: int
     from_provider: str
@@ -89,7 +83,6 @@ class UntranslatedBlockItem(BaseModel):
 
 class QualityReport(BaseModel):
     layout_overflow: list[LayoutOverflowItem] = Field(default_factory=list)
-    image_ocr_failures: list[ImageOcrFailureItem] = Field(default_factory=list)
     fallback_events: list[FallbackEventItem] = Field(default_factory=list)
     untranslated_blocks: list[UntranslatedBlockItem] = Field(default_factory=list)
 

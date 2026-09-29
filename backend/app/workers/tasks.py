@@ -139,7 +139,6 @@ def _merge_report(session_id: str, page_result: PageProcessResult) -> None:
             "layout_overflow": page_result.overflow_items,
             "untranslated_blocks": page_result.untranslated_items,
             "fallback_events": page_result.fallback_events,
-            "image_ocr_failures": page_result.image_ocr_failures,
         },
     )
     for item in page_result.fallback_events:

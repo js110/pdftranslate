@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import fitz
+import orjson
 from PIL import Image, ImageDraw
 
 from app.core.settings import get_settings
@@ -43,11 +44,9 @@ from app.services.heuristics import (
 )
 from app.services.jobtypes import PageProcessResult, _TextBlockJob  # noqa: F401  (PageProcessResult re-exported)
 from app.services.layout import (
-    _extract_layout_hints,
     _get_grobid_reference_regions_cached,
     _layout_reference_start_y,
 )
-from app.services.ocr import _process_image_block
 from app.services.orchestrator import _translate_text_jobs
 from app.services.promptprep import _should_translate_text_block
 from app.services.render import _render_text_job
@@ -189,29 +188,20 @@ def translate_page_to_image(
 
     image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
     draw = ImageDraw.Draw(image)
-    layout_hints = _extract_layout_hints(image, page_no)
-    if layout_hints.table_regions:
-        table_regions.extend(layout_hints.table_regions)
-        non_translatable_regions.extend(layout_hints.table_regions)
-    if layout_hints.skip_regions:
-        non_translatable_regions.extend(layout_hints.skip_regions)
     if grobid_reference_regions:
         non_translatable_regions.extend(grobid_reference_regions)
     non_translatable_regions = _dedupe_regions(non_translatable_regions, iou_threshold=0.90)
 
     logger.info(
-        "page %s region_summary: table=%s non_translatable=%s layout_table=%s layout_ref=%s grobid_ref=%s",
+        "page %s region_summary: table=%s non_translatable=%s grobid_ref=%s",
         page_no,
         len(table_regions),
         len(non_translatable_regions),
-        len(layout_hints.table_regions),
-        len(layout_hints.reference_regions),
         len(grobid_reference_regions),
     )
     page_height = float(pix.height)
     page_width = float(pix.width)
     reference_heading_boxes = _collect_reference_heading_boxes(blocks, zoom)
-    layout_ref_start_y = _layout_reference_start_y(layout_hints.reference_regions, page_height)
     grobid_ref_start_y = _layout_reference_start_y(grobid_reference_regions, page_height)
     if grobid_ref_start_y is not None:
         if references_start_y is None:
@@ -219,13 +209,6 @@ def translate_page_to_image(
         else:
             references_start_y = min(references_start_y, grobid_ref_start_y)
         if grobid_ref_start_y <= page_height * 0.18 and len(grobid_reference_regions) >= 3:
-            reference_page_mode = True
-    if layout_ref_start_y is not None:
-        if references_start_y is None:
-            references_start_y = layout_ref_start_y
-        else:
-            references_start_y = min(references_start_y, layout_ref_start_y)
-        if layout_ref_start_y <= page_height * 0.18 and len(layout_hints.reference_regions) >= 3:
             reference_page_mode = True
 
     # If references section is detected (via "References" chapter heading):
@@ -300,24 +283,6 @@ def translate_page_to_image(
     )
     job_by_index = {job.block_index: job for job in text_jobs}
 
-    # Process image blocks in source order, then render text in geometric order.
-    # This avoids later overlapping text blocks wiping earlier lines via white-box fill.
-    for block in blocks:
-        block_type = block.get("type", -1)
-        if block_type == 1:
-            _process_image_block(
-                block=block,
-                image=image,
-                result=result,
-                zoom=zoom,
-                page_no=page_no,
-                primary_provider=primary_provider,
-                backup_provider=backup_provider,
-                style_profile=style_profile,
-                glossary=glossary,
-                max_retries=max_retries,
-            )
-
     render_jobs: list[_TextBlockJob] = []
     for block_index in translated_map:
         job = job_by_index.get(block_index)
@@ -331,7 +296,38 @@ def translate_page_to_image(
             continue
         _render_text_job(job=job, translated=translated, draw=draw, result=result, page_no=page_no)
 
+    # Collect reflow records for the HTML reader. Unlike the baked image, the
+    # reflow view is not constrained by the original bbox, so we include every
+    # translated block even when the image renderer had to keep the source text
+    # (overflow / font-too-small cases).
+    for job in text_jobs:
+        translated = translated_map.get(job.block_index)
+        if translated is None:
+            continue
+        result.reflow_blocks.append(
+            {
+                "block_list_index": job.block_index,
+                "kind": "text",
+                "source_text": job.text,
+                "translated_text": translated,
+                "font_size": round(float(job.base_font_size), 2),
+                "bbox": [round(job.x0, 1), round(job.y0, 1), round(job.x1, 1), round(job.y1, 1)],
+            }
+        )
+    result.reflow_blocks.sort(key=lambda item: item.get("block_list_index", 0))
+    blocks_payload = {
+        "version": 1,
+        "page_no": page_no,
+        "width": float(pix.width),
+        "height": float(pix.height),
+        "blocks": [{k: v for k, v in item.items() if k != "block_list_index"} for item in result.reflow_blocks],
+    }
+    blocks_path = output_path.with_name(f"{output_path.stem}.blocks.json")
+    blocks_tmp = output_path.with_name(f".{output_path.stem}.blocks.json.tmp")
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    blocks_tmp.write_bytes(orjson.dumps(blocks_payload))
+    os.replace(blocks_tmp, blocks_path)
+
     image.save(output_path)
     return result
 

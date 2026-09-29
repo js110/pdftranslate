@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     storage_root: Path = Field(default=Path("/tmp/pdftranslate/sessions"))
     session_ttl_minutes: int = 120
     max_upload_mb: int = 30
-    render_dpi: int = 160
+    render_dpi: int = 200
     high_priority_queue: str = "page_high"
     normal_priority_queue: str = "page_normal"
     worker_concurrency: int = 4
@@ -37,19 +37,6 @@ class Settings(BaseSettings):
     glossary_first_chunk_only: bool = True
     task_soft_time_limit_sec: int = 180
     task_time_limit_sec: int = 240
-    enable_image_ocr: bool = False
-    enable_remote_image_ocr: bool = False
-    remote_ocr_job_url: str = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs"
-    remote_ocr_token: str | None = None
-    remote_ocr_model: str = "PaddleOCR-VL-1.6"
-    remote_ocr_timeout_sec: int = 30
-    remote_ocr_poll_interval_sec: int = 5
-    remote_ocr_max_wait_sec: int = 180
-    remote_ocr_use_doc_orientation_classify: bool = False
-    remote_ocr_use_doc_unwarping: bool = False
-    remote_ocr_use_chart_recognition: bool = False
-    enable_layout_detection_guard: bool = True
-    layout_detection_lang: str = "en"
     enable_grobid_reference_guard: bool = False
     grobid_base_url: str | None = None
     grobid_timeout_sec: int = 30

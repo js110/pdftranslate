@@ -204,7 +204,7 @@ class SessionStore:
 
     def clear_report_items_for_page(self, session_id: str, page_no: int) -> None:
         report = self.get_report(session_id).model_dump()
-        for key in ("layout_overflow", "untranslated_blocks", "image_ocr_failures", "fallback_events"):
+        for key in ("layout_overflow", "untranslated_blocks", "fallback_events"):
             report[key] = [item for item in report.get(key, []) if int(item.get("page_no", -1)) != page_no]
         self.redis.set(self._report_key(session_id), _dumps(report), ex=self._ttl_seconds())
 

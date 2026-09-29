@@ -46,6 +46,22 @@ export interface SaveResultPdfResponse {
   translated_pages: number
 }
 
+export interface ReflowBlock {
+  kind: 'text'
+  source_text: string
+  translated_text: string
+  font_size: number
+  bbox: [number, number, number, number]
+}
+
+export interface PageBlocks {
+  version: number
+  page_no: number
+  width: number
+  height: number
+  blocks: ReflowBlock[]
+}
+
 export interface SessionState {
   session_id: string
   overall_status: 'created' | 'running' | 'ready' | 'failed' | 'expired' | 'deleted'
@@ -59,7 +75,6 @@ export interface SessionState {
 
 export interface QualityReport {
   layout_overflow: Array<{ page_no: number; bbox: number[]; reason: string }>
-  image_ocr_failures: Array<{ page_no: number; image_index: number; reason: string }>
   fallback_events: Array<{ page_no: number; from_provider: string; to_provider: string; reason: string }>
   untranslated_blocks: Array<{ page_no: number; bbox: number[]; source_excerpt: string; reason: string }>
 }

@@ -9,7 +9,6 @@ PDF Translate Online 是一个本地部署的 Web 应用程序，专为翻译英
 - **后端**: FastAPI + Python 3.13
 - **任务队列**: Celery + Redis
 - **容器化**: Docker + Docker Compose
-- **OCR**: PaddleOCR
 - **PDF 处理**: PyMuPDF (fitz)
 
 ## 核心特性
@@ -18,7 +17,6 @@ PDF Translate Online 是一个本地部署的 Web 应用程序，专为翻译英
 - **智能优先级翻译**: 首次翻译前 3 页优先处理，其余页面后台进行
 - **BYOK 模型配置**: 支持 OpenAI 及 OpenAI 兼容的翻译 API（默认支持 DeepSeek 和 Qwen）
 - **自动故障转移**: 翻译失败时自动切换备用提供商
-- **图片/图表 OCR 重绘**: 对 PDF 中的图片、图表文字进行 OCR 翻译重绘（尽力而为）
 - **SSE 实时事件推送**: 使用 Server-Sent Events 提供页面级别的实时翻译进度
 - **会话级数据管理**: 支持临时会话数据存储，自动过期清理
 - **Docker 一键部署**: 通过 Docker Compose 快速启动完整服务栈
@@ -220,13 +218,12 @@ celery -A celery_worker.celery_app worker -Q page_high,page_normal --loglevel=in
 1. 用户上传 PDF → 创建会话 → 存储 `source.pdf`
 2. 提取原文页面 → 渲染为 PNG → 存储到 `original/`
 3. 启动翻译 → 创建 Celery 任务 → 高优先级队列处理前 3 页
-4. Worker 执行翻译 → OCR 识别 → API 调用 → 重绘 → 存储到 `translated/`
+4. Worker 执行翻译 → API 调用 → 重绘 → 存储到 `translated/`
 5. SSE 推送进度 → 前端更新 UI → 用户查看翻译结果
 
 ### 翻译策略
 
 - **文本提取**: 使用 PyMuPDF 提取 PDF 文本和布局
-- **图片 OCR**: 使用 PaddleOCR 识别图片中的文字
 - **翻译 API**: 调用 OpenAI 兼容的翻译 API
 - **重绘机制**: 将翻译后的文本重新绘制到原始 PDF 页面位置
 - **质量重试**: 低质量翻译结果可自动或手动重试
@@ -235,7 +232,6 @@ celery -A celery_worker.celery_app worker -Q page_high,page_normal --loglevel=in
 
 - 本应用**不提供文件下载**功能，设计为在线阅读器
 - 会话数据是临时的，过期或手动删除后会自动清理
-- OCR 质量取决于源图片清晰度和运行环境
 - 翻译 API 需要用户自行配置，支持 OpenAI 兼容的任何提供商
 - 建议使用 Docker 部署以确保环境一致性
 
@@ -254,16 +250,9 @@ netstat -ano | findstr "5173 8000 6379"
 2. 查看 Docker 日志：`docker compose logs api worker`
 3. 确认网络连接正常，可访问翻译 API
 
-### OCR 效果差
-
-1. 尝试提高 `RENDER_DPI` 参数（默认 160）
-2. 确保源 PDF 图片清晰度足够
-3. 检查 PaddleOCR 模型是否正确加载
-
 ## 参考资源
 
 - [FastAPI 官方文档](https://fastapi.tiangolo.com/)
 - [React 官方文档](https://react.dev/)
 - [Celery 官方文档](https://docs.celeryq.dev/)
 - [PyMuPDF 文档](https://pymupdf.readthedocs.io/)
-- [PaddleOCR 文档](https://github.com/PaddlePaddle/PaddleOCR)
