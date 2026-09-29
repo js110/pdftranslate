@@ -15,8 +15,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt /app/requirements.txt
+COPY requirements.txt requirements-ocr.txt /app/
 RUN pip install --upgrade pip && pip install -r requirements.txt
+# Optional local PaddleOCR support (~GB-sized). Build with --build-arg INSTALL_OCR=true.
+ARG INSTALL_OCR=false
+RUN if [ "$INSTALL_OCR" = "true" ]; then pip install --no-cache-dir -r requirements-ocr.txt; fi
 
 COPY app /app/app
 COPY celery_worker.py /app/celery_worker.py

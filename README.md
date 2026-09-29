@@ -138,6 +138,21 @@ docker compose up --build
 
 ### 启用方式
 
+#### 本地 PaddleOCR（默认镜像未包含，需单独安装）
+
+本地 PaddleOCR 依赖（paddlepaddle/paddleocr，体积约数 GB）默认**不打包**进 Docker 镜像。需要启用时，在项目根目录执行：
+
+```bash
+INSTALL_OCR=true docker compose build api worker
+docker compose up -d
+```
+
+并在 `docker-compose.yml` 中设置 `ENABLE_IMAGE_OCR: "true"`。
+
+#### 百度云端 PaddleOCR（默认镜像即可用）
+
+云端 OCR 走 HTTP API，**无需安装本地 paddle 依赖**，直接配置 Token 即可：
+
 在项目根目录创建 `.env` 文件（已被 `.gitignore` 忽略，不会提交）：
 
 ```env
@@ -147,8 +162,8 @@ REMOTE_OCR_TOKEN=你的百度PaddleOCR云API Token
 然后修改 `docker-compose.yml` 中的环境变量：
 
 ```yaml
-ENABLE_IMAGE_OCR: "true"           # 本地 PaddleOCR（需要 paddleocr 依赖）
-ENABLE_REMOTE_IMAGE_OCR: "true"    # 百度云端 PaddleOCR API
+ENABLE_IMAGE_OCR: "true"           # 本地 PaddleOCR（需 INSTALL_OCR=true 重新构建镜像）
+ENABLE_REMOTE_IMAGE_OCR: "true"    # 百度云端 PaddleOCR API（默认镜像即可）
 ```
 
 重启生效：`docker compose up -d`

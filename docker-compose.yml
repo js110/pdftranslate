@@ -44,6 +44,9 @@ services:
   api:
     build:
       context: ./backend
+      args:
+        # Set INSTALL_OCR=true to bake in local PaddleOCR (several GB).
+        INSTALL_OCR: ${INSTALL_OCR:-false}
     environment:
       <<: *common-env
     ports:
@@ -56,6 +59,8 @@ services:
   worker:
     build:
       context: ./backend
+      args:
+        INSTALL_OCR: ${INSTALL_OCR:-false}
     command:
       [
         "celery",
